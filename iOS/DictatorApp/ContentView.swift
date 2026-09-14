@@ -99,6 +99,11 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                     }
 
+                    Text(Self.versionLine)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity)
+
                     Spacer(minLength: 40)
                 }
                 .padding()
@@ -258,6 +263,15 @@ struct ContentView: View {
             }
             .buttonStyle(.bordered)
         }
+    }
+
+    /// "0.1.4 (3)": the version we ratchet by hand and the build Xcode Cloud
+    /// assigns. Here so "which build is this?" is answered without TestFlight.
+    private static var versionLine: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
     }
 
     private func section<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {

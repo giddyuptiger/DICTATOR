@@ -398,6 +398,14 @@ Swift 6 language mode refused five things, all fixed now and worth knowing:
   rather than `DispatchQueue.main.async`, which cannot capture a non-Sendable
   self. The deferral matters: a slow tap callback gets the tap disabled.
 
+## Versions
+
+`MARKETING_VERSION` in `project.yml` is ratcheted by hand on every push
+(0.1.x until the first App Store release), and Xcode Cloud supplies the build
+number from `CI_BUILD_NUMBER`. The settings screen shows both at the bottom, so
+"which build is this?" is answered on the phone. A push that does not bump the
+version is a mistake.
+
 ## Housekeeping
 
 `Flow.xcodeproj` is a leftover from the rename and should go.
