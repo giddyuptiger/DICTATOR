@@ -57,14 +57,5 @@
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
 
-	<!-- iPad multitasking can resize the window at any time, so the store requires
-	     all four here. The iPhone keeps portrait only above. -->
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
 </dict>
 </plist>

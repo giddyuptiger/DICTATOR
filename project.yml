@@ -70,7 +70,7 @@ targets:
         PRODUCT_NAME: Dictator
         INFOPLIST_FILE: iOS/DictatorApp/Info.plist
         CODE_SIGN_ENTITLEMENTS: iOS/DictatorApp/DictatorIOS.entitlements
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: "1"
         # Assets.xcassets is picked up from iOS/DictatorApp automatically; this
         # names which set inside it is the app icon.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -98,7 +98,7 @@ targets:
         PRODUCT_NAME: DictatorKeyboard
         INFOPLIST_FILE: iOS/DictatorKeyboard/Info.plist
         CODE_SIGN_ENTITLEMENTS: iOS/DictatorKeyboard/DictatorKeyboard.entitlements
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: "1"
 
 schemes:
   Dictator (Mac):
