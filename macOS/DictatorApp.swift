@@ -40,25 +40,32 @@ struct MenuContent: View {
             Divider()
             Text(app.lastTranscript.prefix(60) + (app.lastTranscript.count > 60 ? "…" : ""))
                 .font(.caption)
-            Button("Copy last transcript") {
+            Button("Copy last dictation") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(app.lastTranscript, forType: .string)
             }
         }
         Divider()
-        Picker("Mode", selection: Binding(
-            get: { app.mode },
-            set: { app.mode = $0; DictationMode.current = $0 }
-        )) {
-            ForEach(DictationMode.allCases, id: \.self) { Text($0.displayName).tag($0) }
+        Menu("Mode") {
+            ForEach(DictationMode.allCases, id: \.self) { m in
+                Button {
+                    app.mode = m
+                    DictationMode.current = m
+                } label: {
+                    if app.mode == m {
+                        Label(m.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(m.displayName)
+                    }
+                }
+            }
         }
-        Divider()
-        Text("Engine: \(app.engineLabel)").font(.caption)
+        Button("Vocabulary…") { app.showSettings(tab: .vocabulary) }
         if app.needsAccessibility {
             Text("Waiting for Accessibility permission").font(.caption).foregroundStyle(.orange)
         }
         Divider()
-        Button("Settings…") { app.openSettings() }
+        Button("Settings…") { app.showSettings(tab: .setup) }
         Button("Quit Dictator") { NSApplication.shared.terminate(nil) }
     }
 }
@@ -74,7 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     @Published var isRecording = false
     @Published var engineLabel = "loading"
     @Published var needsAccessibility = false
+    @Published var micGranted = false
     @Published var mode: DictationMode = DictationMode.current
+    @Published var selectedTab: SettingsTab = .setup
 
     private var session: DictationSession?
     private let inserter = MacTextInserter()
@@ -90,6 +99,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { await bootstrap() }
+
+        // First launch: open the guided Setup tab once the app has settled.
+        if !UserDefaults.standard.bool(forKey: "macFirstRunDone") {
+            UserDefaults.standard.set(true, forKey: "macFirstRunDone")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.showSettings(tab: .setup)
+            }
+        }
     }
 
     // MARK: - Setup
@@ -97,8 +114,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private func bootstrap() async {
         guard await AudioRecorder.requestPermission() else {
             status = "Microphone permission denied"
+            micGranted = false
             return
         }
+        micGranted = true
 
         // Ask for Accessibility before anything depends on it. Without this the
         // first sign of trouble is a CGEventTap that silently refuses to be
@@ -231,6 +250,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
+
+    func showSettings(tab: SettingsTab) {
+        selectedTab = tab
+        openSettings()
+    }
 }
 
 // MARK: - Preferences
@@ -278,12 +302,114 @@ enum LoginItem {
     }
 }
 
+enum SettingsTab: String {
+    case setup, general, writing, vocabulary, groq, status
+}
+
 struct SettingsView: View {
     @EnvironmentObject var app: AppDelegate
-    @State private var apiKey = KeychainStore.groqAPIKey() ?? ""
+
+    var body: some View {
+        TabView(selection: Binding(
+            get: { app.selectedTab },
+            set: { app.selectedTab = $0 }
+        )) {
+            SetupTab()
+                .tabItem { Label("Setup", systemImage: "checklist") }
+                .tag(SettingsTab.setup)
+            GeneralTab()
+                .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
+            WritingTab()
+                .tabItem { Label("Writing", systemImage: "text.alignleft") }
+                .tag(SettingsTab.writing)
+            VocabularyTab()
+                .tabItem { Label("Vocabulary", systemImage: "character.book.closed") }
+                .tag(SettingsTab.vocabulary)
+            GroqTab()
+                .tabItem { Label("Groq", systemImage: "key") }
+                .tag(SettingsTab.groq)
+            StatusTab()
+                .tabItem { Label("Status", systemImage: "info.circle") }
+                .tag(SettingsTab.status)
+        }
+        .frame(width: 500, height: 440)
+    }
+}
+
+// MARK: - Setup tab (first-run guide)
+
+private struct SetupRow: View {
+    let done: Bool
+    let showCheck: Bool
+    let title: String
+    let detail: String
+    let buttonTitle: String
+    let url: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                if showCheck {
+                    Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(done ? .green : .secondary)
+                }
+                Text(title).font(.headline)
+            }
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(buttonTitle) {
+                if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+            }
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+struct SetupTab: View {
+    @EnvironmentObject var app: AppDelegate
+
+    var body: some View {
+        Form {
+            Section("Get Dictator working") {
+                SetupRow(
+                    done: app.micGranted, showCheck: true,
+                    title: "Microphone",
+                    detail: "Allow the microphone so Dictator can hear you.",
+                    buttonTitle: "Open Microphone settings",
+                    url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+                )
+                SetupRow(
+                    done: !app.needsAccessibility, showCheck: true,
+                    title: "Accessibility",
+                    detail: "Lets Dictator watch for the hold-to-talk key and type into other apps. It starts working when you come back; no relaunch needed.",
+                    buttonTitle: "Open Accessibility settings",
+                    url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                )
+                SetupRow(
+                    done: false, showCheck: false,
+                    title: "The fn key",
+                    detail: "Set System Settings › Keyboard › \"Press 🌐 to\" to Do Nothing, or macOS takes the key for its own dictation. Or pick Right Option in General.",
+                    buttonTitle: "Open Keyboard settings",
+                    url: "x-apple.systempreferences:com.apple.preference.keyboard"
+                )
+            }
+            Section("Engine") {
+                Text(app.status).font(.callout)
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+}
+
+// MARK: - General tab
+
+struct GeneralTab: View {
+    @EnvironmentObject var app: AppDelegate
     @State private var rightOption = Prefs.useRightOption
-    @State private var saved = false
-    @State private var mode = DictationMode.current
     @State private var sounds = Prefs.playSounds
     @State private var launchAtLogin = LoginItem.enabled
 
@@ -300,10 +426,88 @@ struct SettingsView: View {
                 Text("If you use fn, set System Settings › Keyboard › \"Press 🌐 to\" to \"Do Nothing\", or macOS will take the key for its own dictation. Relaunch after changing this.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Button("Open Keyboard settings") {
+                    if let u = URL(string: "x-apple.systempreferences:com.apple.preference.keyboard") {
+                        NSWorkspace.shared.open(u)
+                    }
+                }
             }
 
-            Section("Cleanup and fallback") {
-                SecureField("Groq API key", text: $apiKey)
+            Section("Behaviour") {
+                Toggle("Play a sound when recording starts and stops", isOn: $sounds)
+                    .onChange(of: sounds) { _, new in Prefs.playSounds = new }
+                Toggle("Launch Dictator at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, new in LoginItem.enabled = new }
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+}
+
+// MARK: - Writing tab
+
+struct WritingTab: View {
+    @EnvironmentObject var app: AppDelegate
+    @State private var mode = DictationMode.current
+
+    var body: some View {
+        Form {
+            Section("Mode") {
+                Picker("Mode", selection: $mode) {
+                    ForEach(DictationMode.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                }
+                .onChange(of: mode) { _, new in
+                    DictationMode.current = new
+                    app.mode = new
+                }
+            }
+
+            Section("Tone profiles") {
+                Text("Dictator matches how it writes to where your cursor is. You can read exactly what it tells the cleanup model, which a closed tool never shows you.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(ToneProfile.defaults) { p in
+                    DisclosureGroup(p.name) {
+                        if !p.bundleIDs.isEmpty {
+                            Text("Apps: " + p.bundleIDs.joined(separator: ", "))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                        Text(p.instructions)
+                            .font(.system(size: 11, design: .monospaced))
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+}
+
+// MARK: - Vocabulary tab
+
+struct VocabularyTab: View {
+    var body: some View {
+        MacVocabularyView()
+            .padding()
+    }
+}
+
+// MARK: - Groq tab
+
+struct GroqTab: View {
+    @State private var apiKey = KeychainStore.groqAPIKey() ?? ""
+    @State private var saved = false
+
+    var body: some View {
+        Form {
+            Section("Groq API key") {
+                SecureField("gsk_…", text: $apiKey)
                 Button("Save") {
                     KeychainStore.setGroqAPIKey(apiKey)
                     saved = true
@@ -313,39 +517,34 @@ struct SettingsView: View {
                 Text("Optional. Transcription runs locally on this Mac. The key is used for the cleanup pass, and as a fallback if the local model will not load.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            Section("Behaviour") {
-                Picker("Mode", selection: $mode) {
-                    ForEach(DictationMode.allCases, id: \.self) { Text($0.displayName).tag($0) }
-                }
-                .onChange(of: mode) { _, new in
-                    DictationMode.current = new
-                    app.mode = new
-                }
-                Toggle("Play a sound when recording starts and stops", isOn: $sounds)
-                    .onChange(of: sounds) { _, new in Prefs.playSounds = new }
-                Toggle("Launch Dictator at login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, new in LoginItem.enabled = new }
-            }
-
-            Section("Permissions") {
-                Button("Open Accessibility settings") {
-                    let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-                    NSWorkspace.shared.open(url)
-                }
-                Text("Required to watch for the trigger key and to type into other apps. macOS does not apply it until Dictator is relaunched.")
+                Text("Without a key, Dictator inserts what it heard, with your vocabulary applied and no cleanup.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            Section("Status") {
-                Text(app.status).font(.caption)
-                Text("Engine: \(app.engineLabel)").font(.caption).foregroundStyle(.secondary)
+                Link("Get a key", destination: URL(string: "https://console.groq.com/keys")!)
+                    .font(.caption)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460)
+        .padding()
+    }
+}
+
+// MARK: - Status tab
+
+struct StatusTab: View {
+    @EnvironmentObject var app: AppDelegate
+
+    var body: some View {
+        Form {
+            Section("Status") {
+                LabeledContent("State", value: app.status)
+                LabeledContent("Engine", value: app.engineLabel)
+                if let t = app.lastTiming { LabeledContent("Last", value: t) }
+                LabeledContent("Microphone", value: app.micGranted ? "Allowed" : "Not allowed")
+                LabeledContent("Accessibility", value: app.needsAccessibility ? "Waiting" : "Granted")
+            }
+        }
+        .formStyle(.grouped)
         .padding()
     }
 }
