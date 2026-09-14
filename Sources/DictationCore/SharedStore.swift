@@ -111,6 +111,25 @@ public enum SharedStore {
         return Date().timeIntervalSince1970 - at < 60 * 60 * 6
     }
 
+    // MARK: - Setup checklist
+
+    /// The keyboard calls this when it appears. A keyboard extension can only
+    /// reach the App Group when Full Access is on, so a successful write is proof
+    /// the user granted it. The container app reads it back for the checklist.
+    public static func markKeyboardFullAccess() {
+        defaults?.set(Date().timeIntervalSince1970, forKey: "kbFullAccessAt")
+    }
+
+    public static var keyboardEverSeen: Bool {
+        (defaults?.double(forKey: "kbFullAccessAt") ?? 0) > 0
+    }
+
+    /// Whether the first-run onboarding has been finished or skipped.
+    public static var onboardingDone: Bool {
+        get { defaults?.bool(forKey: "onboardingDone") ?? false }
+        set { defaults?.set(newValue, forKey: "onboardingDone") }
+    }
+
     // MARK: - Settings
 
     /// The app seeds this on launch (see DictatorApp) and the keyboard reads it

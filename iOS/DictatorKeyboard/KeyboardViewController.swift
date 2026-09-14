@@ -112,6 +112,9 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // Reaching the App Group at all proves Full Access is on; record it so
+        // the container app's setup checklist can tick that row.
+        SharedStore.markKeyboardFullAccess()
         lastSeenToken = SharedStore.resultToken
         applyTheme()
         updateHeight()

@@ -7,16 +7,18 @@ import UIKit
 @main
 struct DictatorApp: App {
     @StateObject private var recorder = BackgroundRecorder()
+    @StateObject private var dictionary = DictionaryStore()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(recorder)
+                .environmentObject(dictionary)
                 .task {
                     seedAPIKeyIfNeeded()
-                    // Warming has to happen while foregrounded. This is the
-                    // moment iOS grants the audio IO the background mode keeps.
-                    await recorder.warmUp()
+                    // Warm-up is triggered from ContentView once onboarding is
+                    // done, so the mic prompt does not fire over the onboarding's
+                    // own explained microphone step.
                 }
                 .onOpenURL { url in
                     // dictator://dictate — the keyboard's cold-start fallback.
@@ -41,63 +43,31 @@ struct DictatorApp: App {
 
 struct ContentView: View {
     @EnvironmentObject private var recorder: BackgroundRecorder
-    @State private var apiKey: String = ""
-    @State private var savedFlash = false
-    @State private var showKeyField = false
+    @EnvironmentObject private var dictionary: DictionaryStore
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var selectedMode: DictationMode = DictationMode.current
+
+    @State private var showOnboarding = false
+    @State private var onboardingStart = 1
+    @State private var showCorrection = false
+
+    // Live setup checklist, refreshed on appear and when the app returns.
+    @State private var keyDone = false
+    @State private var keyboardAdded = false
+    @State private var fullAccess = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     statusCard
-
-                    if recorder.state == .cold {
-                        Button("Start dictation session") {
-                            recorder.note("button tapped")
-                            Task { await recorder.warmUp() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity)
-                    }
-
+                    turnButton
                     modeSection
-                    keySection
+                    vocabularySection
+                    lastDictationSection
                     setupSection
-
-                    if !recorder.lastTranscript.isEmpty {
-                        section("Last transcript") {
-                            Text(recorder.lastTranscript)
-                                .font(.callout)
-                                .textSelection(.enabled)
-                        }
-                    }
-
-                    section("Activity") {
-                        HStack {
-                            Button("Refresh") { recorder.reloadLog() }.font(.caption)
-                            Spacer()
-                            Button("Clear") { recorder.clearLog() }.font(.caption)
-                        }
-                        if recorder.eventLog.isEmpty {
-                            Text("nothing yet").foregroundStyle(.secondary).font(.caption)
-                        } else {
-                            ForEach(recorder.eventLog, id: \.self) { line in
-                                Text(line)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    if recorder.state != .cold {
-                        Button("Stop session and release microphone", role: .destructive) {
-                            recorder.shutDown()
-                        }
-                        .buttonStyle(.bordered)
-                        .frame(maxWidth: .infinity)
-                    }
+                    detailsLink
 
                     Text(Self.versionLine)
                         .font(.caption)
@@ -109,22 +79,42 @@ struct ContentView: View {
                 .padding()
             }
             .navigationTitle("Dictator")
-            .onAppear {
-                // The log now outlives the process, so re-read it every time the
-                // app comes forward. This is the record of what happened while
-                // you were in another app, which is the only place it matters.
+        }
+        .fullScreenCover(isPresented: $showOnboarding) {
+            OnboardingView(startStep: onboardingStart) {
+                showOnboarding = false
+                refreshChecklist()
+                // Now that the mic step has been shown, warm the engine up.
+                Task { await recorder.warmUp() }
+            }
+        }
+        .sheet(isPresented: $showCorrection) {
+            CorrectionSheet(store: dictionary)
+        }
+        .task {
+            selectedMode = DictationMode.current
+            refreshChecklist()
+            dictionary.reload()
+            if SharedStore.onboardingDone {
+                // Warming has to happen while foregrounded. This is the moment
+                // iOS grants the audio IO the background mode keeps.
+                await recorder.warmUp()
+            } else {
+                // First run: walk the user through setup, then warm up.
+                onboardingStart = 1
+                showOnboarding = true
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                refreshChecklist()
+                selectedMode = DictationMode.current
                 recorder.reloadLog()
-                selectedMode = DictationMode.current   // the keyboard may have changed it
-                // Read AFTER the app's .task has seeded the App Group, otherwise
-                // the field reads empty on first launch and looks broken.
-                let stored = SharedStore.groqAPIKey ?? ""
-                apiKey = stored
-                showKeyField = stored.isEmpty
             }
         }
     }
 
-    // MARK: - Pieces
+    // MARK: - Status
 
     private var statusCard: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -132,7 +122,11 @@ struct ContentView: View {
                 Circle()
                     .fill(dotColor)
                     .frame(width: 12, height: 12)
-                Text(statusText).font(.headline)
+                Text(statusHeadline).font(.headline)
+                Spacer()
+                Text(micLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             if recorder.state == .capturing {
                 ProgressView(value: Double(min(recorder.level * 6, 1)))
@@ -159,26 +153,57 @@ struct ContentView: View {
         }
     }
 
-    private var statusText: String {
+    private var statusHeadline: String {
         switch recorder.state {
-        case .cold: return "Session off"
-        case .warm: return "Ready"
+        case .cold: return "Dictator is off"
+        case .warm: return "Dictator is ready"
         case .capturing: return "Listening"
         case .transcribing: return "Transcribing"
-        case .failed(let e): return "Problem: \(e)"
+        case .failed(let e): return e.contains("denied") ? "Microphone is off in Settings" : "Problem"
+        }
+    }
+
+    /// The honest mic-state line, so the app never claims the mic is open when it
+    /// is not. It is open only during a capture.
+    private var micLine: String {
+        switch recorder.state {
+        case .capturing: return "Microphone open"
+        case .cold, .failed: return ""
+        default: return "Microphone closed"
         }
     }
 
     private var statusDetail: String {
         switch recorder.state {
         case .cold:
-            return "Start a session to use the Dictator keyboard in other apps."
-        case .failed:
-            return "Check Settings › Privacy › Microphone."
+            return "Turn Dictator on to use its keyboard in other apps."
+        case .failed(let e):
+            return e.contains("denied") ? "Turn the microphone on in Settings, then come back." : e
         default:
-            return "The microphone stays open while the session runs, so the keyboard can record without switching back here. That is why the orange dot is lit. Stop the session to release it."
+            return "Dictator stays ready in the background. The microphone opens when you tap the mic on the keyboard and closes when you tap stop."
         }
     }
+
+    @ViewBuilder
+    private var turnButton: some View {
+        if recorder.state == .cold {
+            Button("Turn on") {
+                recorder.note("turn on tapped")
+                Task { await recorder.warmUp() }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .frame(maxWidth: .infinity)
+        } else {
+            Button("Turn off", role: .destructive) {
+                recorder.shutDown()
+            }
+            .buttonStyle(.bordered)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: - Mode
 
     private var modeSection: some View {
         section("Mode") {
@@ -205,67 +230,111 @@ struct ContentView: View {
         }
     }
 
-    /// Collapsed once a key is present. It stays reachable because rotating a key
-    /// should not require a rebuild, but it is not the first thing you should see
-    /// on an app that is already working.
+    // MARK: - Vocabulary
+
+    private var vocabularySection: some View {
+        section("Vocabulary") {
+            NavigationLink {
+                VocabularyView(store: dictionary)
+            } label: {
+                HStack {
+                    Text(vocabCountLine)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                }
+            }
+            .buttonStyle(.plain)
+            Text("Names and terms Dictator should spell your way.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var vocabCountLine: String {
+        let n = dictionary.entries.count
+        if n == 0 { return "Add your first word" }
+        return n == 1 ? "1 word" : "\(n) words"
+    }
+
+    // MARK: - Last dictation
+
     @ViewBuilder
-    private var keySection: some View {
-        if showKeyField {
-            expandedKeySection
-        } else {
-            HStack {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("Groq key set").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button("Change") { showKeyField = true }
-                    .font(.caption)
+    private var lastDictationSection: some View {
+        if !recorder.lastTranscript.isEmpty {
+            section("Last dictation") {
+                Text(recorder.lastTranscript)
+                    .font(.callout)
+                    .textSelection(.enabled)
+                HStack {
+                    Button {
+                        UIPasteboard.general.string = recorder.lastTranscript
+                    } label: { Label("Copy", systemImage: "doc.on.doc") }
+                        .font(.caption)
+                    Spacer()
+                    Button {
+                        showCorrection = true
+                    } label: { Label("Fix a word", systemImage: "character.cursor.ibeam") }
+                        .font(.caption)
+                }
             }
         }
     }
 
-    private var expandedKeySection: some View {
-        section("Groq API key") {
-            SecureField("gsk_…", text: $apiKey)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
-            HStack {
-                Button("Save") {
-                    SharedStore.groqAPIKey = apiKey
-                    savedFlash = true
-                    showKeyField = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { savedFlash = false }
-                }
-                .disabled(apiKey.isEmpty)
-                .buttonStyle(.bordered)
-                if savedFlash {
-                    Text("saved").font(.caption).foregroundStyle(.green)
-                }
-                Spacer()
-                Link("Get a key", destination: URL(string: "https://console.groq.com/keys")!)
-                    .font(.caption)
-            }
-        }
-    }
+    // MARK: - Setup checklist
 
     private var setupSection: some View {
-        section("Keyboard setup") {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("1. Settings › General › Keyboard › Keyboards")
-                Text("2. Add New Keyboard › Dictator")
-                Text("3. Tap Dictator, turn on Allow Full Access")
-            }
-            .font(.callout)
-            Button("Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            }
-            .buttonStyle(.bordered)
+        section("Setup") {
+            checklistRow(done: keyDone, title: "Groq key added", step: 1)
+            checklistRow(done: keyboardAdded, title: "Dictator keyboard added", step: 2)
+            checklistRow(done: fullAccess, title: "Full Access on", step: 3)
         }
     }
 
-    /// "0.1.4 (3)": the version we ratchet by hand and the build Xcode Cloud
+    private func checklistRow(done: Bool, title: String, step: Int) -> some View {
+        Button {
+            onboardingStart = step
+            showOnboarding = true
+        } label: {
+            HStack {
+                Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(done ? .green : .secondary)
+                Text(title).foregroundStyle(.primary)
+                Spacer()
+                if !done {
+                    Text("Set up").font(.caption).foregroundStyle(.blue)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func refreshChecklist() {
+        keyDone = !(SharedStore.groqAPIKey ?? "").isEmpty
+        let installed = (UserDefaults.standard.array(forKey: "AppleKeyboards") as? [String]) ?? []
+        keyboardAdded = installed.contains { $0.hasPrefix("design.irons.dictator.keyboard") }
+        // The keyboard can only write to the App Group with Full Access, so a
+        // stamp there is proof it was granted.
+        fullAccess = SharedStore.keyboardEverSeen
+    }
+
+    // MARK: - Details
+
+    private var detailsLink: some View {
+        NavigationLink {
+            DetailsView(recorder: recorder)
+        } label: {
+            HStack {
+                Text("Details").foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Helpers
+
+    /// "0.1.5 (3)": the version we ratchet by hand and the build Xcode Cloud
     /// assigns. Here so "which build is this?" is answered without TestFlight.
     private static var versionLine: String {
         let info = Bundle.main.infoDictionary ?? [:]
