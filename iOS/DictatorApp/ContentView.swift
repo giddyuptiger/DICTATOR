@@ -62,6 +62,15 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                     }
 
+                    if case .failed = recorder.state {
+                        Button("Try again") {
+                            Task { await recorder.retryWarmUp() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .frame(maxWidth: .infinity)
+                    }
+
                     modeSection
                     keySection
                     setupSection
@@ -91,7 +100,7 @@ struct ContentView: View {
                         }
                     }
 
-                    if recorder.state != .cold {
+                    if recorder.state != .cold, recorder.isFailed == false {
                         Button("Stop session and release microphone", role: .destructive) {
                             recorder.shutDown()
                         }
@@ -174,7 +183,7 @@ struct ContentView: View {
         case .cold:
             return "Start a session to use the Dictator keyboard in other apps."
         case .failed:
-            return "Check Settings › Privacy › Microphone."
+            return "Tap Try again. If it keeps failing, quit any app that's recording audio."
         default:
             return "The microphone stays open while the session runs, so the keyboard can record without switching back here. That is why the orange dot is lit. Stop the session to release it."
         }

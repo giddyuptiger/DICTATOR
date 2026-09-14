@@ -202,6 +202,17 @@ Confirmed by Willow's own support documentation:
 
 ---
 
+## Warm-up can be refused by another app
+
+`setActive(true)` at warm-up returns 560557684 (CannotInterruptOthers) when
+another app is holding the microphone non-mixably at that instant, even in the
+foreground. It is transient: the moment the other app finishes, warm-up
+succeeds. Observed on device 2026-09-14 with the Claude app holding audio just
+before Dictator launched. `warmUp()` therefore retries a few times, bounds each
+attempt with a timeout so a wedged `setActive` cannot hang the app, and on final
+failure lands in a state with a visible Try again button rather than a dead end.
+Do NOT "fix" this with `.mixWithOthers`; that trades it for background suspension.
+
 ## Do this first
 
 `Probe/MicProbeKeyboard.swift` is a twenty-minute test that answers the one
