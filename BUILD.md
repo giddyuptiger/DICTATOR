@@ -329,6 +329,28 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.5 — mic-start fix and the interface pass (2026-09-14)
+
+The keyboard-triggered capture that failed on build 1.0 (2) with kAUStartIO
+2003329396 was two AVAudioEngine instances each running a RemoteIO on one
+session; the second start is refused with kAudioUnitErr_CannotDoInCurrentContext
+('what'). `openMic` now stops the silence engine before starting the recorder
+and `closeMic` restarts it, so only one engine runs at a time. This keeps the
+property that the mic (and the orange dot) is open only during a capture. **This
+is reasoned from the error code, not yet watched on device.** To confirm: run
+`idevicesyslog -n` while tapping the mic from Notes and check that the
+kAUStartIO refusal is gone.
+
+The rest of the 0.1.5 pass, from `Projects/dictation/docs/Design.md` §3–4:
+honest mic-state copy in the app and the keyboard; keep the audio and offer a
+retry on a Groq failure; keyboard dark mode, landscape, sentence-case modes with
+a long-press picker, key pop-ups, no millisecond readout; a Vocabulary screen on
+both platforms wired to `PersonalDictionary` and `learn`; a five-step iOS
+onboarding with a validated Groq key step; the Mac tabbed settings and first-run
+Setup guide; "Turn on / Turn off" instead of "session" everywhere. The App Store
+and landing copy (Design.md §5) is still gated on the validation posts and is not
+in this change.
+
 What is verified and what is not:
 
 - `LocalParakeet.prepare()` compiles against the real FluidAudio API as of

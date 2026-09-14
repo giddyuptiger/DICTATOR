@@ -480,10 +480,10 @@ final class KeyboardViewController: UIInputViewController {
             var bg = UIBackgroundConfiguration.clear()
             bg.backgroundColor = palette.key
             conf.background = bg
-            conf.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attr in
-                var a = attr
-                a.font = .systemFont(ofSize: 15, weight: isCurrent ? .semibold : .regular)
-                return a
+            if isCurrent {
+                conf.image = UIImage(systemName: "checkmark")
+                conf.imagePadding = 8
+                conf.imagePlacement = .trailing
             }
             let b = UIButton(configuration: conf)
             b.contentHorizontalAlignment = .leading
