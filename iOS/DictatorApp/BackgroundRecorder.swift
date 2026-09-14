@@ -413,57 +413,101 @@ public final class BackgroundRecorder: ObservableObject {
 
         log("keep-alive: starting (no microphone)")
         let host = audio
-        do {
-            try await Task.detached(priority: .userInitiated) {
-                try host.startKeepAlive()
-            }.value
-            log(host.isKeepAliveRunning
-                ? "keep-alive: silence playing, mic CLOSED"
-                : "keep-alive: NOT PLAYING, app will be suspended")
-        } catch let e as AudioEngineHost.StartError {
-            switch e {
-            case .session(let underlying):
-                let code = (underlying as NSError).code
-                log("session FAILED: \(code) \(underlying.localizedDescription)")
-                // 560557684 = '!int', AVAudioSessionErrorCodeCannotInterruptOthers:
-                // another app holds a non-mixable audio session, so activating
-                // ours is refused. It is environment-dependent and clears on its
-                // own once the other app stops its audio, so this is recoverable:
-                // say what to do and leave a Try again path (see ContentView).
-                if code == 560557684 {
-                    state = .failed("Another app is using audio. Stop its sound, then tap Try again.")
-                } else {
-                    state = .failed("Couldn't start audio. Tap Try again.")
-                }
-            case .noInputRoute:
-                log("no input route")
-                state = .failed("No input route")
-            case .engine(let underlying):
-                log("engine FAILED: \(underlying.localizedDescription)")
-                state = .failed("Engine start: \((underlying as NSError).code)")
-            case .badFormat:
-                log("bad audio format")
-                state = .failed("Bad audio format")
-            }
-            return
-        } catch {
-            log("unexpected: \(error.localizedDescription)")
-            state = .failed(error.localizedDescription)
-            return
-        }
 
-        state = .warm
-        SharedStore.setEngineWarm(true)
-        startHeartbeat()
-        listen()
+        // Warm-up gets refused when another app is holding the microphone
+        // non-mixably: setActive returns 560557684, CannotInterruptOthers. That
+        // is transient, the other app finishes, so retry a few times before
+        // giving up. Each try is bounded so a blocked setActive can never hang
+        // the warm-up: on iOS these calls can wedge for a minute or more, and
+        // the earlier code just sat there.
+        let maxAttempts = 4
+        for attempt in 1...maxAttempts {
+            do {
+                try await withWarmUpTimeout(seconds: 5) {
+                    try host.startKeepAlive()
+                }
+                log(host.isKeepAliveRunning
+                    ? "keep-alive: silence playing, mic CLOSED"
+                    : "keep-alive: NOT PLAYING, app will be suspended")
+                state = .warm
+                SharedStore.setEngineWarm(true)
+                startHeartbeat()
+                listen()
+                return
+            } catch {
+                let (message, retryable) = warmUpFailure(error)
+                log("keep-alive attempt \(attempt)/\(maxAttempts) failed: \(message)")
+                if retryable, attempt < maxAttempts {
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                    continue
+                }
+                state = .failed(message)
+                return
+            }
+        }
     }
 
-    /// Recover from a failed warm-up. warmUp only runs from .cold, so a failure
-    /// would otherwise be a dead end: reset to .cold and try again. The common
-    /// case is CannotInterruptOthers clearing once another app releases audio.
+    /// Re-run warm-up after a failure. warmUp itself only fires from .cold, so a
+    /// failed state has to be cleared first. This is what the Try again button
+    /// calls, and it is the difference between a recoverable hiccup and an app
+    /// that looks dead.
+    /// Convenience for the view: is the recorder sitting in a failed state.
+    public var isFailed: Bool {
+        if case .failed = state { return true }
+        return false
+    }
+
     public func retryWarmUp() async {
-        if case .failed = state { state = .cold }
+        guard case .failed = state else { return }
+        state = .cold
         await warmUp()
+    }
+
+    private enum WarmUpError: Error { case timedOut }
+
+    /// Runs a blocking audio call off the main thread and gives up waiting after
+    /// `seconds`. If it times out the UI recovers and offers a retry; the call
+    /// itself cannot be cancelled once CoreAudio is inside it, so the orphaned
+    /// worker is left to unwind on its own.
+    private func withWarmUpTimeout(
+        seconds: Double,
+        _ work: @escaping @Sendable () throws -> Void
+    ) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask(priority: .userInitiated) { try work() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw WarmUpError.timedOut
+            }
+            defer { group.cancelAll() }
+            try await group.next()
+        }
+    }
+
+    /// Maps a warm-up error to a reader-facing line and whether retrying is
+    /// worth it. CannotInterruptOthers and a timeout are transient; a denied
+    /// microphone or a bad format is not.
+    private func warmUpFailure(_ error: Error) -> (message: String, retryable: Bool) {
+        if error is WarmUpError {
+            return ("Audio was busy, trying again", true)
+        }
+        if case AudioEngineHost.StartError.session(let underlying) = error {
+            let code = (underlying as NSError).code
+            if code == 560557684 {   // '!int', CannotInterruptOthers
+                return ("Another app is using the microphone", true)
+            }
+            return ("Audio session couldn't start (\(code))", true)
+        }
+        if case AudioEngineHost.StartError.noInputRoute = error {
+            return ("No microphone input available", false)
+        }
+        if case AudioEngineHost.StartError.engine(let underlying) = error {
+            return ("Audio engine couldn't start (\((underlying as NSError).code))", true)
+        }
+        if case AudioEngineHost.StartError.badFormat = error {
+            return ("Unexpected audio format", false)
+        }
+        return (error.localizedDescription, true)
     }
 
     /// A stamp every two seconds. The keyboard treats a stale stamp as "the app
