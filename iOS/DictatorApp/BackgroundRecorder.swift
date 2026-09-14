@@ -94,10 +94,24 @@ final class AudioEngineHost: @unchecked Sendable {
 
     // MARK: - Keep-alive (no microphone)
 
-    /// Playback-only. Safe to call while foregrounded; keeps the app resident
-    /// afterwards.
+    /// Called once, while foregrounded, and never again.
+    ///
+    /// The category is .playAndRecord from the very start even though no
+    /// microphone is opened yet, and that is the important part. A backgrounded
+    /// app is NOT allowed to activate a session that would interrupt other
+    /// apps: setActive fails with OSStatus 560557684, which is '!int',
+    /// AVAudioSessionErrorCodeCannotInterruptOthers. So the session has to be
+    /// claimed here, in the foreground, where interrupting others is permitted,
+    /// and then left completely alone.
+    ///
+    /// Nothing after this point touches setCategory or setActive. Opening the
+    /// microphone only builds an engine and installs a tap on a session that is
+    /// already ours.
+    ///
+    /// The category alone does not light the orange indicator: that tracks
+    /// actual input, which only runs while the recorder engine does.
     func startKeepAlive() throws {
-        try setSession(record: false)
+        try setSession(record: true)
         try runKeepAlive()
     }
 
@@ -159,11 +173,12 @@ final class AudioEngineHost: @unchecked Sendable {
     // MARK: - Microphone, held only while wanted
 
     /// Returns the input sample rate.
+    ///
+    /// Deliberately does not touch the audio session. See startKeepAlive: any
+    /// session change from the background is refused, and this is called from
+    /// the background every single time.
     func openMic() throws -> Double {
         if recorder != nil { return AVAudioSession.sharedInstance().sampleRate }
-
-        try setSession(record: true)
-        try runKeepAlive()          // hardware format may have changed
 
         let engine = AVAudioEngine()
         let input = engine.inputNode
@@ -193,8 +208,9 @@ final class AudioEngineHost: @unchecked Sendable {
         return format.sampleRate
     }
 
-    /// Releases the microphone and drops the session back to playback-only. The
-    /// process stays resident on silence alone.
+    /// Releases the microphone by destroying the engine that owns it. The
+    /// session is left exactly as it is, because handing it back would mean
+    /// asking for it again later from the background, which is not allowed.
     func closeMic() {
         if let engine = recorder {
             engine.inputNode.removeTap(onBus: 0)
@@ -206,9 +222,6 @@ final class AudioEngineHost: @unchecked Sendable {
         capturing = false
         samples.removeAll(keepingCapacity: false)
         lock.unlock()
-
-        try? setSession(record: false)
-        try? runKeepAlive()
     }
 
     var isMicOpen: Bool { recorder != nil }

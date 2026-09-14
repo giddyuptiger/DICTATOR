@@ -27,6 +27,7 @@ final class KeyboardViewController: UIInputViewController {
         case needsKey
         case needsSession      // app not running: cold start required
         case ready
+        case starting          // asked the app to record, waiting for it to confirm
         case recording
         case working
     }
@@ -76,7 +77,7 @@ final class KeyboardViewController: UIInputViewController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 switch self.mode {
-                case .recording, .working:
+                case .recording, .working, .starting:
                     return          // mid-flight, leave it alone
                 default:
                     self.refreshMode()
@@ -147,14 +148,14 @@ final class KeyboardViewController: UIInputViewController {
             startRecording()
         case .recording:
             stopRecording()
-        case .working:
+        case .starting, .working:
             return
         }
     }
 
     private func startRecording() {
+        mode = .starting
         DarwinBridge.shared.post(.startRecording)
-        statusLabel.text = "starting…"
 
         // Confirmation comes from the App Group, not from a Darwin reply. A
         // backgrounded app is scheduled when the system feels like it, so a
@@ -180,7 +181,8 @@ final class KeyboardViewController: UIInputViewController {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 } else if Date() >= deadline {
                     self.cancelWait()
-                    // Nobody picked up. The app really is gone.
+                    // Nobody picked up. Say so rather than quietly reverting to
+                    // "Tap to talk", which reads as a button that does nothing.
                     self.coldStart()
                 }
             }
@@ -321,6 +323,10 @@ final class KeyboardViewController: UIInputViewController {
             micButton.isEnabled = true; micButton.alpha = 1
             micButton.backgroundColor = .systemBlue
             if statusLabel.text?.hasSuffix("ms") != true { statusLabel.text = "Tap to talk" }
+        case .starting:
+            micButton.isEnabled = true; micButton.alpha = 1
+            micButton.backgroundColor = .systemIndigo
+            statusLabel.text = "Starting…"
         case .recording:
             micButton.backgroundColor = .systemRed
             statusLabel.text = "Listening, tap to stop"
@@ -611,7 +617,7 @@ final class KeyboardViewController: UIInputViewController {
     private func layout() {
         view.backgroundColor = UIColor(red: 0.82, green: 0.84, blue: 0.86, alpha: 1)
 
-        let bar = UIStackView(arrangedSubviews: [micButton, modeButton, undoButton])
+        let bar = UIStackView(arrangedSubviews: [modeButton, micButton, undoButton])
         bar.axis = .horizontal
         bar.spacing = 6
         bar.distribution = .fill
