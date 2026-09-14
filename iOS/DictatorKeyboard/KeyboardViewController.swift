@@ -30,6 +30,7 @@ final class KeyboardViewController: UIInputViewController {
         case starting          // asked the app to record, waiting for it to confirm
         case recording
         case working
+        case retryError        // a retryable failure; tap tries again
     }
 
     private var mode: Mode = .ready {
@@ -47,6 +48,55 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var undoButton  = makeUndo()
     private lazy var modeButton  = makeMode()
     private var lastInserted: String?
+    private var retryMessage: String?
+
+    // MARK: - Theme
+
+    /// The board and keys are coloured from the host's keyboard appearance so
+    /// Dictator matches the system keyboard beside it. The old build hard-coded a
+    /// light board and used .systemBackground for keys, which rendered black keys
+    /// on a light board in dark mode.
+    private struct Palette {
+        let board: UIColor
+        let key: UIColor
+        let keyPressed: UIColor
+        let special: UIColor
+        let specialPressed: UIColor
+        let keyText: UIColor
+        let specialText: UIColor
+    }
+
+    private var isDarkKeyboard: Bool {
+        switch textDocumentProxy.keyboardAppearance {
+        case .dark:  return true
+        case .light: return false
+        default:     return traitCollection.userInterfaceStyle == .dark
+        }
+    }
+
+    private var palette: Palette {
+        if isDarkKeyboard {
+            return Palette(
+                board:          UIColor(white: 0.125, alpha: 1),   // #202020
+                key:            UIColor(white: 0.42,  alpha: 1),   // #6B6B6B
+                keyPressed:     UIColor(white: 0.55,  alpha: 1),
+                special:        UIColor(white: 0.275, alpha: 1),   // #464646
+                specialPressed: UIColor(white: 0.38,  alpha: 1),
+                keyText:        .white,
+                specialText:    .white
+            )
+        } else {
+            return Palette(
+                board:          UIColor(red: 0.820, green: 0.827, blue: 0.851, alpha: 1), // #D1D3D9
+                key:            .white,
+                keyPressed:     UIColor(white: 0.87, alpha: 1),
+                special:        UIColor(red: 0.678, green: 0.702, blue: 0.737, alpha: 1), // #ADB3BC
+                specialPressed: UIColor(red: 0.60,  green: 0.63,  blue: 0.67,  alpha: 1),
+                keyText:        .black,
+                specialText:    .black
+            )
+        }
+    }
 
     // MARK: - Lifecycle
 
@@ -63,8 +113,16 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         lastSeenToken = SharedStore.resultToken
+        applyTheme()
+        updateHeight()
         refreshMode()
         startModeWatch()
+    }
+
+    override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        applyTheme()
+        updateHeight()
     }
 
     /// Re-checks the App Group once a second. Without this the status line is a
@@ -77,8 +135,8 @@ final class KeyboardViewController: UIInputViewController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 switch self.mode {
-                case .recording, .working, .starting:
-                    return          // mid-flight, leave it alone
+                case .recording, .working, .starting, .retryError:
+                    return          // mid-flight or showing an error, leave it alone
                 default:
                     self.refreshMode()
                     self.render()   // refresh the diagnostic text in place
@@ -99,6 +157,7 @@ final class KeyboardViewController: UIInputViewController {
         modeWatch?.invalidate()
         modeWatch = nil
         cancelResultWatch()
+        dismissModeMenu()
     }
 
     deinit { DarwinBridge.shared.stopObserving() }
@@ -113,11 +172,7 @@ final class KeyboardViewController: UIInputViewController {
             MainActor.assumeIsolated { self?.consumeResult() }
         }
         bridge.observe(.failed) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.mode = .ready
-                self.statusLabel.text = SharedStore.lastError ?? "Failed"
-            }
+            MainActor.assumeIsolated { self?.consumeResult() }
         }
     }
 
@@ -141,13 +196,16 @@ final class KeyboardViewController: UIInputViewController {
     @objc private func micTapped() {
         switch mode {
         case .needsFullAccess, .needsKey:
-            return
+            // Both are fixed in the app. Try to open it so the user is not stuck.
+            coldStart()
         case .needsSession:
             coldStart()
         case .ready:
             startRecording()
         case .recording:
             stopRecording()
+        case .retryError:
+            retry()
         case .starting, .working:
             return
         }
@@ -200,6 +258,14 @@ final class KeyboardViewController: UIInputViewController {
         waitForResult(deadline: Date().addingTimeInterval(25))
     }
 
+    /// Ask the app to transcribe again on the audio it kept from a failure.
+    private func retry() {
+        retryMessage = nil
+        DarwinBridge.shared.post(.retry)
+        mode = .working
+        waitForResult(deadline: Date().addingTimeInterval(25))
+    }
+
     /// Polls the App Group for a new result token.
     ///
     /// The .resultReady Darwin notification still fires and is still handled,
@@ -231,10 +297,10 @@ final class KeyboardViewController: UIInputViewController {
         resultWatch = nil
     }
 
-    /// The one bounce. Only when the app is not running.
+    /// The one bounce. Only when the app is not running (or needs setup).
     private func coldStart() {
-        statusLabel.text = "waking Dictator…"
         mode = .needsSession
+        statusLabel.text = "Opening Dictator. Swipe back and tap again."
         guard let url = URL(string: "dictator://dictate") else { return }
 
         // extensionContext.open is the only sanctioned way for an extension to
@@ -247,8 +313,8 @@ final class KeyboardViewController: UIInputViewController {
             Task { @MainActor in
                 guard let self else { return }
                 self.statusLabel.text = opened
-                    ? "Dictator is starting. Come back and tap the mic."
-                    : "Open the Dictator app once to start a session."
+                    ? "Opening Dictator. Swipe back and tap again."
+                    : "Open the Dictator app once to start."
             }
         }
     }
@@ -260,8 +326,14 @@ final class KeyboardViewController: UIInputViewController {
         cancelResultWatch()
 
         if let err = SharedStore.lastError {
-            statusLabel.text = err
-            mode = .ready
+            if SharedStore.lastErrorRetryable {
+                retryMessage = err
+                mode = .retryError
+            } else {
+                retryMessage = nil
+                mode = .ready
+                statusLabel.text = err
+            }
             return
         }
         guard let text = SharedStore.transcript, !text.isEmpty else {
@@ -271,19 +343,41 @@ final class KeyboardViewController: UIInputViewController {
         insert(text)
         lastInserted = text
         undoButton.isHidden = false
-        statusLabel.text = "\(SharedStore.lastLatencyMS) ms"
         mode = .ready
+        statusLabel.text = "Tap to talk"
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
     private func insert(_ text: String) {
         let proxy = textDocumentProxy
-        if let before = proxy.documentContextBeforeInput,
-           let last = before.last, !last.isWhitespace,
+        let before = proxy.documentContextBeforeInput
+
+        // Leading space when the previous character is not whitespace and the new
+        // text does not open with punctuation.
+        if let before, let last = before.last, !last.isWhitespace,
            let first = text.first, !first.isPunctuation {
             proxy.insertText(" ")
         }
-        proxy.insertText(text)
+
+        // Capitalise the first letter at a sentence start, unless the register is
+        // Super casual, which is deliberately lowercase.
+        var out = text
+        if DictationMode.current != .superCasual, atSentenceStart(before) {
+            out = capitalizingFirst(out)
+        }
+        proxy.insertText(out)
+    }
+
+    private func atSentenceStart(_ before: String?) -> Bool {
+        guard let before else { return true }
+        let trimmed = before.trimmingCharacters(in: .whitespaces)
+        guard let last = trimmed.last else { return true }
+        return ".!?\n".contains(last)
+    }
+
+    private func capitalizingFirst(_ s: String) -> String {
+        guard let first = s.first else { return s }
+        return String(first).uppercased() + s.dropFirst()
     }
 
     @objc private func undoTapped() {
@@ -294,36 +388,43 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     // MARK: - Rendering
+
     private func render() {
         modeButton.setTitle(DictationMode.current.displayName, for: .normal)
 
         switch mode {
         case .needsFullAccess:
-            micButton.isEnabled = false; micButton.alpha = 0.5
-            micButton.backgroundColor = .systemGray3
-            statusLabel.text = "Allow Full Access in Settings › Keyboards"
+            micButton.isEnabled = true; micButton.alpha = 1
+            micButton.backgroundColor = .systemGray
+            statusLabel.text = "Turn on Full Access for Dictator"
         case .needsKey:
-            micButton.isEnabled = false; micButton.alpha = 0.5
-            micButton.backgroundColor = .systemGray3
-            statusLabel.text = "Add a Groq key in the Dictator app"
+            micButton.isEnabled = true; micButton.alpha = 1
+            micButton.backgroundColor = .systemGray
+            statusLabel.text = "Add your Groq key in Dictator"
         case .needsSession:
             micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemOrange
-            statusLabel.text = "Tap to wake Dictator"
+            micButton.backgroundColor = .systemBlue
+            statusLabel.text = "Open Dictator once"
         case .ready:
             micButton.isEnabled = true; micButton.alpha = 1
             micButton.backgroundColor = .systemBlue
-            if statusLabel.text?.hasSuffix("ms") != true { statusLabel.text = "Tap to talk" }
+            statusLabel.text = "Tap to talk"
         case .starting:
             micButton.isEnabled = true; micButton.alpha = 1
             micButton.backgroundColor = .systemIndigo
-            statusLabel.text = "Starting…"
+            statusLabel.text = "Starting"
         case .recording:
+            micButton.isEnabled = true; micButton.alpha = 1
             micButton.backgroundColor = .systemRed
-            statusLabel.text = "Listening, tap to stop"
+            statusLabel.text = "Listening. Tap to stop."
         case .working:
+            micButton.isEnabled = true; micButton.alpha = 1
             micButton.backgroundColor = .systemGray
-            statusLabel.text = "Transcribing…"
+            statusLabel.text = "Transcribing"
+        case .retryError:
+            micButton.isEnabled = true; micButton.alpha = 1
+            micButton.backgroundColor = .systemRed
+            statusLabel.text = retryMessage ?? "Tap to try again"
         }
     }
 
@@ -333,6 +434,92 @@ final class KeyboardViewController: UIInputViewController {
         DictationMode.advance()
         render()
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    @objc private func modeLongPressed(_ g: UILongPressGestureRecognizer) {
+        guard g.state == .began else { return }
+        showModeMenu()
+    }
+
+    private var modeMenu: UIView?
+
+    /// A small four-row menu, for people who would rather pick a mode than cycle
+    /// to it. Presented as an overlay inside the keyboard's own bounds, because a
+    /// keyboard extension cannot reliably present a view controller and anything
+    /// drawn above the top edge is clipped.
+    private func showModeMenu() {
+        dismissModeMenu()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        let dimmer = UIButton(type: .custom)
+        dimmer.frame = view.bounds
+        dimmer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        dimmer.backgroundColor = UIColor.black.withAlphaComponent(0.15)
+        dimmer.addTarget(self, action: #selector(dismissModeMenu), for: .touchUpInside)
+
+        let container = UIView()
+        container.backgroundColor = palette.special
+        container.layer.cornerRadius = 8
+        container.layer.masksToBounds = true
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        for m in DictationMode.allCases {
+            let isCurrent = (m == DictationMode.current)
+            var conf = UIButton.Configuration.plain()
+            conf.title = m.displayName
+            conf.baseForegroundColor = palette.keyText
+            conf.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14)
+            var bg = UIBackgroundConfiguration.clear()
+            bg.backgroundColor = palette.key
+            conf.background = bg
+            conf.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attr in
+                var a = attr
+                a.font = .systemFont(ofSize: 15, weight: isCurrent ? .semibold : .regular)
+                return a
+            }
+            let b = UIButton(configuration: conf)
+            b.contentHorizontalAlignment = .leading
+            b.tag = DictationMode.allCases.firstIndex(of: m) ?? 0
+            b.addTarget(self, action: #selector(modeMenuPicked(_:)), for: .touchUpInside)
+            b.heightAnchor.constraint(equalToConstant: 40).isActive = true
+            stack.addArrangedSubview(b)
+        }
+
+        container.addSubview(stack)
+        dimmer.addSubview(container)
+        view.addSubview(dimmer)
+        modeMenu = dimmer
+
+        let mf = modeButton.convert(modeButton.bounds, to: view)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -4),
+            container.widthAnchor.constraint(equalToConstant: 170),
+            container.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: max(mf.minX, 6)),
+            container.topAnchor.constraint(equalTo: view.topAnchor, constant: mf.maxY + 4)
+        ])
+    }
+
+    @objc private func modeMenuPicked(_ sender: UIButton) {
+        let all = DictationMode.allCases
+        if all.indices.contains(sender.tag) {
+            DictationMode.current = all[sender.tag]
+        }
+        dismissModeMenu()
+        render()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    @objc private func dismissModeMenu() {
+        modeMenu?.removeFromSuperview()
+        modeMenu = nil
     }
 
     // ========================================================================
@@ -407,7 +594,7 @@ final class KeyboardViewController: UIInputViewController {
         // Row 3: shift, letters, delete.
         let third = UIStackView()
         third.axis = .horizontal
-        third.spacing = 5
+        third.spacing = 6
         third.distribution = .fill
 
         let shiftKey = makeSpecial(
@@ -431,7 +618,7 @@ final class KeyboardViewController: UIInputViewController {
         // Row 4: plane switch, globe, space, return.
         let fourth = UIStackView()
         fourth.axis = .horizontal
-        fourth.spacing = 5
+        fourth.spacing = 6
         fourth.distribution = .fill
 
         let planeKey = makeSpecial(
@@ -440,7 +627,8 @@ final class KeyboardViewController: UIInputViewController {
             action: #selector(planeSwitchTapped)
         )
         let space = makeSpecial(image: nil, title: "space", action: #selector(spaceTapped))
-        space.backgroundColor = .systemBackground
+        space.backgroundColor = palette.key
+        space.setTitleColor(palette.keyText, for: .normal)
         let ret = makeSpecial(image: nil, title: "return", action: #selector(returnTapped))
 
         fourth.addArrangedSubview(planeKey)
@@ -460,7 +648,7 @@ final class KeyboardViewController: UIInputViewController {
     private func keyRow(_ titles: [String]) -> UIStackView {
         let stack = UIStackView()
         stack.axis = .horizontal
-        stack.spacing = 5
+        stack.spacing = 6
         stack.distribution = .fillEqually
         for t in titles {
             let b = makeKey(t)
@@ -474,8 +662,8 @@ final class KeyboardViewController: UIInputViewController {
         let b = UIButton(type: .custom)
         b.setTitle(title, for: .normal)
         b.titleLabel?.font = .systemFont(ofSize: 22, weight: .regular)
-        b.setTitleColor(.label, for: .normal)
-        b.backgroundColor = .systemBackground
+        b.setTitleColor(palette.keyText, for: .normal)
+        b.backgroundColor = palette.key
         b.layer.cornerRadius = 5
         b.layer.shadowColor = UIColor.black.cgColor
         b.layer.shadowOpacity = 0.28
@@ -491,14 +679,14 @@ final class KeyboardViewController: UIInputViewController {
         let b = UIButton(type: .custom)
         if let image {
             b.setImage(UIImage(systemName: image), for: .normal)
-            b.tintColor = .label
+            b.tintColor = palette.specialText
         }
         if let title {
             b.setTitle(title, for: .normal)
             b.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular)
-            b.setTitleColor(.label, for: .normal)
+            b.setTitleColor(palette.specialText, for: .normal)
         }
-        b.backgroundColor = .systemGray3
+        b.backgroundColor = palette.special
         b.layer.cornerRadius = 5
         b.addTarget(self, action: action, for: .touchUpInside)
         return b
@@ -515,8 +703,40 @@ final class KeyboardViewController: UIInputViewController {
             UIImage(systemName: shift == .locked ? "capslock.fill" : (shift == .off ? "shift" : "shift.fill")),
             for: .normal
         )
-        shiftKey?.backgroundColor = shift == .off ? .systemGray3 : .systemBackground
+        shiftKey?.backgroundColor = shift == .off ? palette.special : palette.key
+        shiftKey?.tintColor = shift == .off ? palette.specialText : palette.keyText
     }
+
+    // MARK: - Key previews
+
+    /// A pop-up above a pressed character key, as the system keyboard does. The
+    /// old build only tinted the key, which is hard to see under a thumb.
+    private lazy var keyPreview: UILabel = {
+        let l = UILabel()
+        l.textAlignment = .center
+        l.font = .systemFont(ofSize: 28, weight: .regular)
+        l.layer.cornerRadius = 6
+        l.layer.masksToBounds = true
+        l.isHidden = true
+        l.isUserInteractionEnabled = false
+        return l
+    }()
+
+    private func showPreview(for sender: UIButton) {
+        guard letterKeys.contains(sender), let title = sender.title(for: .normal) else { return }
+        if keyPreview.superview == nil { view.addSubview(keyPreview) }
+        keyPreview.backgroundColor = palette.key
+        keyPreview.textColor = palette.keyText
+        keyPreview.text = title
+        let f = sender.convert(sender.bounds, to: view)
+        let w = max(f.width + 14, 34)
+        let h = f.height + 18
+        keyPreview.frame = CGRect(x: f.midX - w / 2, y: f.minY - h - 3, width: w, height: h)
+        keyPreview.isHidden = false
+        view.bringSubviewToFront(keyPreview)
+    }
+
+    private func hidePreview() { keyPreview.isHidden = true }
 
     // MARK: - Typing actions
 
@@ -527,8 +747,15 @@ final class KeyboardViewController: UIInputViewController {
         if shift == .once { shift = .off }
     }
 
-    @objc private func keyDown(_ sender: UIButton) { sender.backgroundColor = .systemGray4 }
-    @objc private func keyUp(_ sender: UIButton)   { sender.backgroundColor = .systemBackground }
+    @objc private func keyDown(_ sender: UIButton) {
+        sender.backgroundColor = palette.keyPressed
+        showPreview(for: sender)
+    }
+
+    @objc private func keyUp(_ sender: UIButton) {
+        sender.backgroundColor = palette.key
+        hidePreview()
+    }
 
     @objc private func shiftTapped() {
         // A second tap inside 300 ms is caps lock, the same gesture the system
@@ -580,7 +807,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func deleteDown(_ sender: UIButton) {
-        sender.backgroundColor = .systemGray2
+        sender.backgroundColor = palette.specialPressed
         deleteRepeat?.invalidate()
         // Hold to repeat, after the usual half-second grace period.
         let t = Timer(timeInterval: 0.5, repeats: false) { [weak self] _ in
@@ -598,23 +825,23 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func deleteUp(_ sender: UIButton) {
-        sender.backgroundColor = .systemGray3
+        sender.backgroundColor = palette.special
         deleteRepeat?.invalidate()
         deleteRepeat = nil
     }
 
     // MARK: - Layout
 
-    private func layout() {
-        view.backgroundColor = UIColor(red: 0.82, green: 0.84, blue: 0.86, alpha: 1)
+    private var heightConstraint: NSLayoutConstraint?
 
+    private func layout() {
         let bar = UIStackView(arrangedSubviews: [modeButton, micButton, undoButton])
         bar.axis = .horizontal
         bar.spacing = 6
         bar.distribution = .fill
 
         rowsStack.axis = .vertical
-        rowsStack.spacing = 9
+        rowsStack.spacing = 11
         rowsStack.distribution = .fillEqually
 
         let root = UIStackView(arrangedSubviews: [bar, rowsStack])
@@ -628,8 +855,12 @@ final class KeyboardViewController: UIInputViewController {
         statusLabel.isUserInteractionEnabled = false
         undoButton.isHidden = true
 
+        let height = view.heightAnchor.constraint(equalToConstant: 268)
+        height.priority = .required
+        heightConstraint = height
+
         NSLayoutConstraint.activate([
-            view.heightAnchor.constraint(equalToConstant: 268),
+            height,
             root.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
             root.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
             root.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
@@ -644,7 +875,28 @@ final class KeyboardViewController: UIInputViewController {
             statusLabel.trailingAnchor.constraint(equalTo: micButton.trailingAnchor, constant: -10)
         ])
 
+        let lp = UILongPressGestureRecognizer(target: self, action: #selector(modeLongPressed(_:)))
+        modeButton.addGestureRecognizer(lp)
+
         rebuildKeys()
+    }
+
+    /// The keyboard is shorter in landscape, where vertical space is scarce.
+    private func updateHeight() {
+        let compact = traitCollection.verticalSizeClass == .compact
+        heightConstraint?.constant = compact ? 196 : 268
+    }
+
+    private func applyTheme() {
+        view.backgroundColor = palette.board
+        modeButton.backgroundColor = palette.special
+        modeButton.setTitleColor(palette.specialText, for: .normal)
+        globeButton.backgroundColor = palette.special
+        globeButton.tintColor = palette.specialText
+        undoButton.backgroundColor = palette.special
+        undoButton.tintColor = palette.specialText
+        rebuildKeys()
+        render()
     }
 
     private func makeMic() -> UIButton {

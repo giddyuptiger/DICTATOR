@@ -146,12 +146,14 @@ public enum DictationMode: String, CaseIterable, Sendable {
     case formal
     case emoji
 
+    /// Sentence case, shown on the keyboard mode button, the iOS segmented
+    /// control, and the Mac menu. Users read "Formal", not "formal".
     public var displayName: String {
         switch self {
-        case .superCasual: return "super casual"
-        case .casual:      return "casual"
-        case .formal:      return "formal"
-        case .emoji:       return "emoji"
+        case .superCasual: return "Super casual"
+        case .casual:      return "Casual"
+        case .formal:      return "Formal"
+        case .emoji:       return "Emoji"
         }
     }
 
