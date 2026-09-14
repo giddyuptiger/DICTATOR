@@ -423,8 +423,18 @@ public final class BackgroundRecorder: ObservableObject {
         } catch let e as AudioEngineHost.StartError {
             switch e {
             case .session(let underlying):
-                log("session FAILED: \(underlying.localizedDescription)")
-                state = .failed("Audio session: \((underlying as NSError).code)")
+                let code = (underlying as NSError).code
+                log("session FAILED: \(code) \(underlying.localizedDescription)")
+                // 560557684 = '!int', AVAudioSessionErrorCodeCannotInterruptOthers:
+                // another app holds a non-mixable audio session, so activating
+                // ours is refused. It is environment-dependent and clears on its
+                // own once the other app stops its audio, so this is recoverable:
+                // say what to do and leave a Try again path (see ContentView).
+                if code == 560557684 {
+                    state = .failed("Another app is using audio. Stop its sound, then tap Try again.")
+                } else {
+                    state = .failed("Couldn't start audio. Tap Try again.")
+                }
             case .noInputRoute:
                 log("no input route")
                 state = .failed("No input route")
@@ -446,6 +456,14 @@ public final class BackgroundRecorder: ObservableObject {
         SharedStore.setEngineWarm(true)
         startHeartbeat()
         listen()
+    }
+
+    /// Recover from a failed warm-up. warmUp only runs from .cold, so a failure
+    /// would otherwise be a dead end: reset to .cold and try again. The common
+    /// case is CannotInterruptOthers clearing once another app releases audio.
+    public func retryWarmUp() async {
+        if case .failed = state { state = .cold }
+        await warmUp()
     }
 
     /// A stamp every two seconds. The keyboard treats a stale stamp as "the app

@@ -159,7 +159,7 @@ struct ContentView: View {
         case .warm: return "Dictator is ready"
         case .capturing: return "Listening"
         case .transcribing: return "Transcribing"
-        case .failed(let e): return e.contains("denied") ? "Microphone is off in Settings" : "Problem"
+        case .failed(let e): return e.contains("denied") ? "Microphone is off in Settings" : "Couldn't turn on"
         }
     }
 
@@ -186,7 +186,8 @@ struct ContentView: View {
 
     @ViewBuilder
     private var turnButton: some View {
-        if recorder.state == .cold {
+        switch recorder.state {
+        case .cold:
             Button("Turn on") {
                 recorder.note("turn on tapped")
                 Task { await recorder.warmUp() }
@@ -194,7 +195,16 @@ struct ContentView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .frame(maxWidth: .infinity)
-        } else {
+        case .failed:
+            // A failed warm-up is recoverable, not a dead end: always offer a
+            // retry. CannotInterruptOthers clears once another app releases audio.
+            Button("Try again") {
+                Task { await recorder.retryWarmUp() }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .frame(maxWidth: .infinity)
+        default:
             Button("Turn off", role: .destructive) {
                 recorder.shutDown()
             }

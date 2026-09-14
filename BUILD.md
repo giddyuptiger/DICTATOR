@@ -341,6 +341,20 @@ is reasoned from the error code, not yet watched on device.** To confirm: run
 `idevicesyslog -n` while tapping the mic from Notes and check that the
 kAUStartIO refusal is gone.
 
+### 0.1.6 — warm-up recovers from CannotInterruptOthers (2026-09-14)
+
+Device logs showed a second, separate failure: warm-up's own `setActive`
+returning 560557684 (AVAudioSessionErrorCodeCannotInterruptOthers) when another
+app held a non-mixable audio session, after a long synchronous block on the
+background thread. It is environment-dependent and clears once the other app
+stops its audio, so it is recoverable, but the app dead-ended: a `.failed` state
+hid the only start button. Fixes: warm-up now shows an honest, actionable
+message ("Another app is using audio. Stop its sound, then tap Try again.") for
+that code, keeps the raw OSStatus in the Activity log, and the home screen shows
+a "Try again" button in `.failed` that resets and re-warms (`retryWarmUp`). The
+audio calls were already off the main thread, so this was never a true hang. We
+did not add `.mixWithOthers`, which would trade this for background suspension.
+
 The rest of the 0.1.5 pass, from `Projects/dictation/docs/Design.md` §3–4:
 honest mic-state copy in the app and the keyboard; keep the audio and offer a
 retry on a Groq failure; keyboard dark mode, landscape, sentence-case modes with
