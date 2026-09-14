@@ -15,6 +15,7 @@ public enum SharedStore {
         static let transcript   = "transcript"
         static let resultToken  = "resultToken"   // changes on every new result
         static let error        = "lastError"
+        static let errorRetry   = "lastErrorRetryable"
         static let engineWarm   = "engineWarm"
         static let warmAt       = "warmAt"
         static let groqKey      = "groqAPIKey"
@@ -74,15 +75,21 @@ public enum SharedStore {
         defaults?.set(latencyMS, forKey: Key.lastLatency)
         defaults?.set(UUID().uuidString, forKey: Key.resultToken)
         defaults?.removeObject(forKey: Key.error)
+        defaults?.removeObject(forKey: Key.errorRetry)
     }
 
-    public static func publish(error: String) {
+    /// `retryable` tells the keyboard whether tapping again should ask the app to
+    /// retry on the kept audio (a network blip) or is a dead end (a bad key).
+    public static func publish(error: String, retryable: Bool = false) {
         defaults?.set(error, forKey: Key.error)
+        defaults?.set(retryable, forKey: Key.errorRetry)
         defaults?.set(UUID().uuidString, forKey: Key.resultToken)
+        defaults?.removeObject(forKey: Key.transcript)
     }
 
     public static var transcript: String? { defaults?.string(forKey: Key.transcript) }
     public static var lastError: String?  { defaults?.string(forKey: Key.error) }
+    public static var lastErrorRetryable: Bool { defaults?.bool(forKey: Key.errorRetry) ?? false }
     public static var resultToken: String? { defaults?.string(forKey: Key.resultToken) }
     public static var lastLatencyMS: Int { defaults?.integer(forKey: Key.lastLatency) ?? 0 }
 

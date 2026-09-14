@@ -4,19 +4,18 @@ import Foundation
 // Note: DictationCore is compiled directly into this target as source
 // (see project.yml), not linked as a module, so there is nothing to import.
 
-/// The warm engine.
+/// The warm app, and the mic held only while wanted.
 ///
-/// THE ONE RULE: once started, the engine is NEVER stopped. Stopping audio IO is
-/// what forfeits the right to restart it from the background. So the engine runs
-/// continuously and the tap simply discards samples when we are not capturing.
+/// THE ONE RULE: the app keeps continuous audio IO the whole time it is on, so
+/// it stays resident in the background and the keyboard can reach it without an
+/// app switch. That IO is claimed while foregrounded and kept by the `audio`
+/// background mode.
 ///
-/// That is the entire reason a keyboard can trigger a recording without bouncing
-/// to this app: the app is already holding live audio IO, granted while it was
-/// foregrounded and kept by the `audio` background mode.
-///
-/// The honest cost: the orange microphone indicator stays lit for the whole
-/// session, because the microphone genuinely is open. Willow and Wispr have the
-/// same property. Do not try to hide it; surface it and give the user a stop.
+/// Between dictations the audio IO is a silent player, not the microphone. The
+/// microphone opens when the keyboard asks for a capture and closes the moment
+/// the capture ends. So the orange microphone indicator is lit only while you
+/// are actually dictating, not for the whole time the app is on. That is the
+/// privacy story, and it is true: do not describe the mic as open all session.
 
 
 /// AVAudioConverter's input block can be invoked more than once per convert()
@@ -172,7 +171,17 @@ final class AudioEngineHost: @unchecked Sendable {
 
     // MARK: - Microphone, held only while wanted
 
-    /// Returns the input sample rate.
+    /// Opens the microphone for one capture and returns the input sample rate.
+    ///
+    /// The keep-alive (silence) engine is stopped first, on purpose. Two
+    /// AVAudioEngine instances cannot each run a RemoteIO audio unit on the same
+    /// session at once: starting the second one is refused with
+    /// kAudioUnitErr_CannotDoInCurrentContext (OSStatus 2003329396, 'what'),
+    /// which is exactly the kAUStartIO failure seen on build 1.0 (2). So only one
+    /// engine ever runs: silence for residency between captures, the recorder
+    /// while capturing. The swap is sub-second and both sides are audio IO, so
+    /// background residency is not lost across it, and the microphone is open
+    /// only while the recorder engine runs, which is only during a capture.
     ///
     /// Deliberately does not touch the audio session. See startKeepAlive: any
     /// session change from the background is refused, and this is called from
@@ -180,38 +189,58 @@ final class AudioEngineHost: @unchecked Sendable {
     func openMic() throws -> Double {
         if recorder != nil { return AVAudioSession.sharedInstance().sampleRate }
 
-        let engine = AVAudioEngine()
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else { throw StartError.noInputRoute }
-
-        lock.lock()
-        converter = AVAudioConverter(from: format, to: targetFormat)
-        lock.unlock()
-
-        // Formed in a nonisolated method so no actor isolation is inherited. A
-        // tap block that inherits @MainActor gets a dispatch_assert_queue
-        // compiled into it, and CoreAudio calls taps from its realtime thread,
-        // which traps the process on the first buffer.
-        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buf, _ in
-            self?.handle(buf)
-        }
+        // Hand the single RemoteIO to the recorder: stop silence before input.
+        pauseKeepAlive()
 
         do {
+            let engine = AVAudioEngine()
+            let input = engine.inputNode
+            let format = input.outputFormat(forBus: 0)
+            guard format.sampleRate > 0 else { throw StartError.noInputRoute }
+
+            lock.lock()
+            converter = AVAudioConverter(from: format, to: targetFormat)
+            lock.unlock()
+
+            // Formed in a nonisolated method so no actor isolation is inherited. A
+            // tap block that inherits @MainActor gets a dispatch_assert_queue
+            // compiled into it, and CoreAudio calls taps from its realtime thread,
+            // which traps the process on the first buffer.
+            input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buf, _ in
+                self?.handle(buf)
+            }
+
             engine.prepare()
             try engine.start()
+
+            recorder = engine
+            return format.sampleRate
         } catch {
+            // Never leave the app with no engine running in the background:
+            // bring silence back before surfacing the failure.
+            try? resumeKeepAlive()
+            if let e = error as? StartError { throw e }
             throw StartError.engine(error)
         }
+    }
 
-        recorder = engine
-        return format.sampleRate
+    /// Stops the silence engine so the recorder can own the one RemoteIO.
+    private func pauseKeepAlive() {
+        if silence.isPlaying { silence.stop() }
+        if keepAlive.isRunning { keepAlive.stop() }
+    }
+
+    /// Restarts the silence engine after a capture, restoring background
+    /// residency. The audio session is left active and .playAndRecord throughout.
+    private func resumeKeepAlive() throws {
+        try runKeepAlive()
     }
 
     /// Releases the microphone by destroying the engine that owns it. The
     /// session is left exactly as it is, because handing it back would mean
     /// asking for it again later from the background, which is not allowed.
     func closeMic() {
+        let hadMic = recorder != nil
         if let engine = recorder {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
@@ -222,6 +251,9 @@ final class AudioEngineHost: @unchecked Sendable {
         capturing = false
         samples.removeAll(keepingCapacity: false)
         lock.unlock()
+
+        // Silence comes back so the app stays resident until the next capture.
+        if hadMic { try? resumeKeepAlive() }
     }
 
     var isMicOpen: Bool { recorder != nil }
@@ -332,6 +364,11 @@ public final class BackgroundRecorder: ObservableObject {
     private var isWarming = false
     private var heartbeat: Timer?
     private var captureCap: Timer?
+
+    /// The last captured audio, kept after a failed transcription so the words
+    /// are not lost to a network blip. The keyboard offers "Tap to try again",
+    /// which posts .retry and lands in retryLastTranscription.
+    private var lastSamples: [Float] = []
 
     public init() {
         eventLog = SharedStore.logLines
@@ -457,6 +494,10 @@ public final class BackgroundRecorder: ObservableObject {
             MainActor.assumeIsolated { self?.endCapture() }
         }
 
+        bridge.observe(.retry) { [weak self] in
+            MainActor.assumeIsolated { self?.retryLastTranscription() }
+        }
+
         // Safety net. If the keyboard is dismissed mid-capture the stop tap will
         // never come, and a microphone held open by an abandoned capture is
         // exactly the thing we are trying to avoid.
@@ -565,10 +606,24 @@ public final class BackgroundRecorder: ObservableObject {
 
     // MARK: - Transcription
 
+    /// Re-runs transcription on the audio kept from a failed attempt. Wired to
+    /// the keyboard's "Tap to try again" through the .retry Darwin signal.
+    public func retryLastTranscription() {
+        guard state == .warm, !lastSamples.isEmpty else { return }
+        let samples = lastSamples
+        state = .transcribing
+        log("retrying \(String(format: "%.1fs", Double(samples.count) / 16_000))")
+        Task { await transcribe(samples) }
+    }
+
     private func transcribe(_ samples: [Float]) async {
+        // Hold onto the audio until we know the attempt succeeded, so a network
+        // failure offers a retry instead of losing the words.
+        lastSamples = samples
+
         let started = Date()
         guard let key = SharedStore.groqAPIKey, !key.isEmpty else {
-            finish(error: "No Groq API key set")
+            finish(error: "Add your Groq key in Dictator", retryable: false)
             return
         }
 
@@ -578,17 +633,49 @@ public final class BackgroundRecorder: ObservableObject {
 
         do {
             let raw = try await speech.transcribe(samples: samples)
-            guard !raw.isEmpty else { finish(error: "Nothing heard"); return }
-            let cleaned = await cleaner.process(raw, profile: .messaging)
+            guard !raw.isEmpty else {
+                lastSamples = []
+                finish(error: "Nothing heard", retryable: false)
+                return
+            }
+            // The host app is unknowable to a keyboard on iOS 26.4+, so we
+            // cannot pick a per-app tone profile. Use neutral and let the mode
+            // the user chose on the keyboard be the sole register control.
+            let cleaned = await cleaner.process(raw, profile: ToneProfile.neutral)
             let ms = Int(Date().timeIntervalSince(started) * 1000)
             log("mode: \(DictationMode.current.displayName)")
             finish(text: cleaned.text, ms: ms)
         } catch {
-            finish(error: error.localizedDescription)
+            let (message, retryable) = Self.classify(error)
+            finish(error: message, retryable: retryable)
         }
     }
 
+    /// Turn a transcription error into a short, honest pill message and whether
+    /// tapping again should retry. A rejected key is not retryable; a network
+    /// blip is.
+    private static func classify(_ error: Error) -> (String, Bool) {
+        if let groq = error as? GroqTranscription.GroqError {
+            switch groq {
+            case .http(let status, _):
+                if status == 401 || status == 403 {
+                    return ("Groq rejected the key. Check it in Dictator.", false)
+                }
+                return ("Groq had a problem. Tap to try again.", true)
+            case .missingKey:
+                return ("Add your Groq key in Dictator", false)
+            case .emptyAudio:
+                return ("Nothing heard", false)
+            case .unparseable:
+                return ("Couldn't read Groq's reply. Tap to try again.", true)
+            }
+        }
+        // URLSession errors (offline, timeout, cancelled) are all retryable.
+        return ("Couldn't reach Groq. Tap to try again.", true)
+    }
+
     private func finish(text: String, ms: Int) {
+        lastSamples = []
         lastTranscript = text
         SharedStore.publish(transcript: text, latencyMS: ms)
         DarwinBridge.shared.post(.resultReady)
@@ -596,8 +683,9 @@ public final class BackgroundRecorder: ObservableObject {
         log("\(ms) ms: \(text.prefix(40))")
     }
 
-    private func finish(error: String) {
-        SharedStore.publish(error: error)
+    private func finish(error: String, retryable: Bool) {
+        if !retryable { lastSamples = [] }
+        SharedStore.publish(error: error, retryable: retryable)
         DarwinBridge.shared.post(.failed)
         state = .warm
         log("error: \(error)")

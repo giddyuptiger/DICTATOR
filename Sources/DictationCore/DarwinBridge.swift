@@ -14,6 +14,8 @@ public enum DarwinSignal: String, CaseIterable, Sendable {
     case startRecording = "design.irons.dictator.start"
     /// Keyboard → app: stop capturing and transcribe.
     case stopRecording  = "design.irons.dictator.stop"
+    /// Keyboard → app: retry transcription on the audio kept from a failure.
+    case retry          = "design.irons.dictator.retry"
     /// Keyboard → app: are you alive? (cold-start detection)
     case ping           = "design.irons.dictator.ping"
     /// Keyboard → app: I am on screen, open the microphone.

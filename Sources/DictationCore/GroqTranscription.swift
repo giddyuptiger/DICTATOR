@@ -54,6 +54,28 @@ public struct GroqTranscription: SpeechProvider {
         self.session = URLSession(configuration: config)
     }
 
+    /// Cheap check that a key works, for onboarding. One GET to the models
+    /// endpoint: 200 means the key is good, 401/403 means it was rejected, and a
+    /// thrown error means we could not reach Groq at all (offline, timeout).
+    /// Returns true only on a 2xx.
+    public static func validateKey(_ key: String) async throws -> Bool {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/models")!)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(trimmed)", forHTTPHeaderField: "Authorization")
+
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 10
+        config.waitsForConnectivity = false
+        let session = URLSession(configuration: config)
+
+        let (_, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { return false }
+        return (200..<300).contains(http.statusCode)
+    }
+
     public func transcribe(samples: [Float]) async throws -> String {
         guard !apiKey.isEmpty else { throw GroqError.missingKey }
 
