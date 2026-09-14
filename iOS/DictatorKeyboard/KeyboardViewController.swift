@@ -234,32 +234,23 @@ final class KeyboardViewController: UIInputViewController {
     /// The one bounce. Only when the app is not running.
     private func coldStart() {
         statusLabel.text = "waking Dictator…"
+        mode = .needsSession
         guard let url = URL(string: "dictator://dictate") else { return }
 
-        // extensionContext.open() is documented for a handful of extension
-        // types and a keyboard is not one of them: it calls back with false and
-        // launches nothing. Walking the responder chain for openURL: is the
-        // long-standing workaround. It is a grey area for App Store review, and
-        // this build is not going to the App Store.
-        if openViaResponderChain(url) {
-            statusLabel.text = "Dictator is starting. Come back and tap the mic."
-        } else {
-            statusLabel.text = "Open the Dictator app once to start a session."
-        }
-        mode = .needsSession
-    }
-
-    private func openViaResponderChain(_ url: URL) -> Bool {
-        let selector = sel_registerName("openURL:")
-        var responder: UIResponder? = self
-        while let r = responder {
-            if r.responds(to: selector) {
-                r.perform(selector, with: url)
-                return true
+        // extensionContext.open is the only sanctioned way for an extension to
+        // open a URL. On current iOS a keyboard gets `false` back and nothing
+        // launches, so the honest fallback is to ask for a manual open. The
+        // responder-chain openURL: walk that used to live here did launch the
+        // app, but it is private-API-adjacent and was removed ahead of App
+        // Store submission (2026-09-14).
+        extensionContext?.open(url) { [weak self] opened in
+            Task { @MainActor in
+                guard let self else { return }
+                self.statusLabel.text = opened
+                    ? "Dictator is starting. Come back and tap the mic."
+                    : "Open the Dictator app once to start a session."
             }
-            responder = r.next
         }
-        return false
     }
 
     private func consumeResult() {

@@ -13,6 +13,11 @@ import CoreGraphics
 ///   System Settings > Keyboard > "Press 🌐 to" = "Do Nothing"
 /// or your tap will fight the system. Right Option is offered as a trigger that
 /// nothing else wants.
+///
+/// Main-actor isolated: the tap's run-loop source is added to the main run loop
+/// in start(), so CoreGraphics delivers every callback on the main thread. The
+/// callback below asserts that rather than assuming it.
+@MainActor
 public final class HotkeyMonitor {
 
     public enum Trigger {
@@ -78,7 +83,9 @@ public final class HotkeyMonitor {
     /// re-launched after the user grants it; macOS does not hand it over live.
     @discardableResult
     public static func ensureAccessibility(prompt: Bool = true) -> Bool {
-        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue()
+        // kAXTrustedCheckOptionPrompt is a mutable C global, which Swift 6 will
+        // not let a Swift function read. Its value is this fixed string.
+        let key = "AXTrustedCheckOptionPrompt" as CFString
         let options = [key: prompt] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
@@ -94,7 +101,12 @@ public final class HotkeyMonitor {
         let callback: CGEventTapCallBack = { _, type, event, refcon in
             guard let refcon else { return Unmanaged.passUnretained(event) }
             let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
-            return monitor.handle(type: type, event: event)
+            // assumeIsolated can only return Sendable values, and Unmanaged<CGEvent>
+            // is not one, so the handler answers a Bool: swallow, or pass through.
+            let swallow = MainActor.assumeIsolated {
+                monitor.handle(type: type, event: event)
+            }
+            return swallow ? nil : Unmanaged.passUnretained(event)
         }
 
         guard let tap = CGEvent.tapCreate(
@@ -128,15 +140,15 @@ public final class HotkeyMonitor {
 
     // MARK: - Event handling
 
-    private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+    private func handle(type: CGEventType, event: CGEvent) -> Bool {
         // The system disables a tap that takes too long in its callback. Re-arm it,
         // otherwise the hotkey silently dies after a hiccup.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            return Unmanaged.passUnretained(event)
+            return false
         }
 
-        guard type == .flagsChanged else { return Unmanaged.passUnretained(event) }
+        guard type == .flagsChanged else { return false }
 
         let flagIsSet = event.flags.contains(trigger.flag)
         let matchesKey: Bool
@@ -145,20 +157,22 @@ public final class HotkeyMonitor {
         } else {
             matchesKey = true
         }
-        guard matchesKey else { return Unmanaged.passUnretained(event) }
+        guard matchesKey else { return false }
 
         if flagIsSet && !isHeld {
             isHeld = true
             pressedAt = Date()
-            DispatchQueue.main.async { [weak self] in self?.onPress?() }
+            // Defer the handler so the tap callback returns at once; a slow
+            // callback gets the tap disabled by the system.
+            Task { @MainActor [weak self] in self?.onPress?() }
             // Swallow it so the host app never sees the modifier.
-            return nil
+            return true
 
         } else if !flagIsSet && isHeld {
             isHeld = false
             let held = pressedAt.map { Date().timeIntervalSince($0) } ?? 0
             pressedAt = nil
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 if held >= self.minimumHoldDuration {
                     self.onRelease?()
@@ -166,11 +180,14 @@ public final class HotkeyMonitor {
                     self.onCancel?()
                 }
             }
-            return nil
+            return true
         }
 
-        return Unmanaged.passUnretained(event)
+        return false
     }
 
-    deinit { stop() }
+    deinit {
+        // Only ever released from main-actor state in the app delegate.
+        MainActor.assumeIsolated { stop() }
+    }
 }

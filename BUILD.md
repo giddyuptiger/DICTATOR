@@ -3,7 +3,8 @@
 Local dictation for Mac and iPhone. Hold `fn` on the Mac, tap the mic on the
 phone, speak, get clean text where the cursor is. Replaces Wispr Flow at $15/mo.
 
-Status: scaffold, uncompiled. See "Honest status" at the bottom.
+Status: builds on both platforms, 1.0 (1) on TestFlight. See "Honest status"
+at the bottom.
 
 ---
 
@@ -175,7 +176,12 @@ Confirmed by Willow's own support documentation:
    ```
 
    Use `extensionContext.open`, not SwiftUI `openURL`: the latter has no success
-   result and fails silently in a keyboard extension.
+   result and fails silently in a keyboard extension. On current iOS a keyboard
+   gets `false` back from `extensionContext.open` too, and nothing launches. The
+   responder-chain `openURL:` walk that worked around this was removed on
+   2026-09-14 ahead of App Store submission (it is private-API-adjacent), so a
+   cold start now asks the user to open the app by hand. It is rare: the app
+   stays resident by playing silence, so a cold start only follows a kill.
 
 4. **Result path:** app writes transcript to the App Group, posts a Darwin
    notification back, keyboard reads it and calls `textDocumentProxy.insertText`.
@@ -320,17 +326,21 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 
 ## Honest status
 
-Written without a Swift toolchain, so **none of this has been compiled.** It is a
-detailed spec with working structure, not code that builds today. Expect to fix
-imports, actor isolation, and at least one FluidAudio API signature:
-`AsrModels.downloadAndLoad()` in particular should be checked against the current
-README, since that package is young and moving.
+Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
+app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
-What I would stand behind: the architecture, the 48 MB constraint and what it
-forces, the fn-key mechanics, and the reason Wispr's keyboard behaves the way it
-does. Those are the parts that would otherwise cost you the week.
+What is verified and what is not:
 
----
+- `LocalParakeet.prepare()` compiles against the real FluidAudio API as of
+  0.15.7 (`AsrModels.downloadAndLoad(version:)`, `AsrManager.loadModels`,
+  `transcribe(_:decoderState:)`). It has not yet been watched loading on a Mac;
+  the Groq fallback covers a failure. `from: 0.12.4` in `project.yml` floats to
+  the newest 0.x, so the resolved checkout under DerivedData is the one to read
+  when a signature is in doubt.
+- Whether the orange mic indicator stays off between dictations, now that the
+  session is `.playAndRecord` from warm-up, is unverified on device.
+- The keyboard has never been seen at iPad width. `TARGETED_DEVICE_FAMILY` is
+  still "1,2".
 
 ## Gotcha: the tap block that trapped on the first audio buffer
 
@@ -360,16 +370,33 @@ isolation.
 
 ## Secrets
 
-The Groq key is currently a literal in `seedAPIKeyIfNeeded()` in
-`iOS/DictatorApp/ContentView.swift`, written into the App Group on first launch
-so the keyboard extension can read it back. That is a stopgap, and it means the
-key is git-tracked.
+The Groq key lives in `Sources/DictationCore/Secrets.swift`, which is gitignored.
+Locally, copy `Secrets.swift.example` to `Secrets.swift` and paste your key. In
+Xcode Cloud, `ci_scripts/ci_post_clone.sh` writes the file from the
+`GROQ_API_KEY` secret environment variable before generating the project.
 
-The clean version is `Sources/DictationCore/Secrets.swift`, already gitignored,
-with `Secrets.swift.example` as the template. It needs `xcodegen generate` to
-exist as far as Xcode is concerned: `project.yml` is the source of truth and the
-`.xcodeproj` is generated, so a file merely present on disk is invisible to the
-build. A copy is parked in `_to_delete/Secrets.swift`.
+On iOS, `seedAPIKeyIfNeeded()` in `ContentView.swift` copies `BuildSecrets.groqAPIKey`
+into the App Group once, so the keyboard extension can read it. A key typed into
+the settings screen replaces it. Check `git log --stat` before pushing anything
+near this file.
+
+## Gotcha: the Mac target and Swift 6
+
+The Mac target rotted silently for a while because Xcode Cloud builds the iOS
+scheme and nothing built the Mac one. When it was next compiled (2026-09-14)
+Swift 6 language mode refused five things, all fixed now and worth knowing:
+
+- A stored `static let` holding `UserDefaults` is "shared mutable state". Make it
+  a computed property.
+- `kAXTrustedCheckOptionPrompt` is a mutable C global and cannot be read from
+  Swift 6. Its value is the fixed string `"AXTrustedCheckOptionPrompt"`.
+- `HotkeyMonitor` is `@MainActor`: its tap source is on the main run loop, so
+  the C callback enters it through `MainActor.assumeIsolated`. That closure can
+  only return `Sendable` values, and `Unmanaged<CGEvent>` is not one, so the
+  handler returns a `Bool` and the callback maps it to the event.
+- The press and release handlers are deferred with `Task { @MainActor in }`
+  rather than `DispatchQueue.main.async`, which cannot capture a non-Sendable
+  self. The deferral matters: a slow tap callback gets the tap disabled.
 
 ## Housekeeping
 

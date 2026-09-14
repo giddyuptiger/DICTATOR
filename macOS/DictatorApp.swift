@@ -106,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // looking in the wrong place entirely.
         if !AXIsProcessTrusted() {
             needsAccessibility = true
-            let prompt = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+            let prompt = ["AXTrustedCheckOptionPrompt": true]
             _ = AXIsProcessTrustedWithOptions(prompt as CFDictionary)
             watchForAccessibility()
         }
@@ -236,7 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 // MARK: - Preferences
 
 enum Prefs {
-    private static let d = UserDefaults.standard
+    private static var d: UserDefaults { .standard }
     static var useRightOption: Bool {
         get { d.bool(forKey: "useRightOption") }
         set { d.set(newValue, forKey: "useRightOption") }
