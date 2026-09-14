@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+
+	<!-- Lives on the CONTAINER app. The keyboard extension inherits it. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>The Dictator keyboard listens while you dictate.</string>
+
+	<!-- THE capability that keeps audio IO alive after the user leaves this app.
+	     Without it the keyboard cannot trigger a recording without a bounce. -->
+	<!-- Saves answering the export-compliance question on every single upload.
+	     Accurate here: the app uses only HTTPS, which is exempt. -->
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+
+	<!-- Cold-start fallback: the keyboard opens dictator://dictate only when the
+	     app is not already running. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>design.irons.dictator</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>dictator</string>
+			</array>
+		</dict>
+	</array>
+
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+
+	<!-- iPad multitasking can resize the window at any time, so the store requires
+	     all four here. The iPhone keeps portrait only above. -->
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

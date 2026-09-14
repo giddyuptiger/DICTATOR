@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+	<!-- REQUIRED for a keyboard extension. Without it installd refuses the
+	     whole app with MIInstallerErrorDomain 53 / MissingBundleDisplayNameString.
+	     This is the name shown in Settings > Keyboards. -->
+	<key>CFBundleDisplayName</key><string>MicProbe</string>
+	<key>CFBundlePackageType</key><string>XPC!</string>
+	<key>CFBundleShortVersionString</key><string>1.0</string>
+	<key>CFBundleVersion</key><string>1</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<!-- The half of the unlock that lives in the plist. -->
+			<key>RequestsOpenAccess</key><true/>
+			<key>IsASCIICapable</key><false/>
+			<key>PrefersRightToLeft</key><false/>
+			<key>PrimaryLanguage</key><string>en-US</string>
+		</dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.keyboard-service</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).KeyboardViewController</string>
+	</dict>
+</dict>
+</plist>

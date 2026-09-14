@@ -1,0 +1,115 @@
+# XcodeGen spec. Generates the whole Xcode project, four targets wired together,
+# App Groups and entitlements set, RequestsOpenAccess already in place.
+#
+#   brew install xcodegen
+#   xcodegen generate
+#   open Flow.xcodeproj
+#
+# Regenerate any time. Never commit Flow.xcodeproj; this file is the source of truth.
+
+name: Dictator
+
+options:
+  bundleIdPrefix: design.irons.dictator
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "17.0"
+
+packages:
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio
+    from: 0.12.4
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Set this to your Apple Developer Team ID, or pick the team in Xcode once.
+    DEVELOPMENT_TEAM: W9K8HB89TY
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+targets:
+
+  # ---------------------------------------------------------------- macOS ----
+  DictatorMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/DictationCore
+        excludes: ["Transcriber.swift"]
+      - path: macOS
+    dependencies:
+      - package: FluidAudio
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: design.irons.dictator.mac
+        PRODUCT_NAME: Dictator
+        INFOPLIST_FILE: macOS/Info.plist
+        CODE_SIGN_ENTITLEMENTS: macOS/Dictator.entitlements
+        # Sandbox off: a CGEventTap plus the Accessibility API is painful to
+        # sandbox and this is not going to the App Store.
+        ENABLE_HARDENED_RUNTIME: YES
+
+  # ------------------------------------------------------------------ iOS ----
+  DictatorIOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/DictationCore
+        excludes: ["Transcriber.swift", "LocalParakeet.swift"]
+      - path: iOS/DictatorApp
+    dependencies:
+      - target: DictatorKeyboard
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: design.irons.dictator
+        PRODUCT_NAME: Dictator
+        INFOPLIST_FILE: iOS/DictatorApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: iOS/DictatorApp/DictatorIOS.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # Assets.xcassets is picked up from iOS/DictatorApp automatically; this
+        # names which set inside it is the app icon.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  # ------------------------------------------------------- keyboard ext ------
+  # Deliberately does NOT depend on FluidAudio. A 48 MB process has no business
+  # linking an ML framework; transcription here goes over the network.
+  DictatorKeyboard:
+    type: app-extension
+    platform: iOS
+    sources:
+      # A keyboard extension is forbidden from capturing audio (Apple QA1872,
+      # verified on device 2026-09-14). Excluding the recording code makes that
+      # a build-enforced fact rather than a thing we have to remember.
+      - path: Sources/DictationCore
+        excludes:
+          - "Transcriber.swift"
+          - "LocalParakeet.swift"
+          - "AudioRecorder.swift"
+          - "DictationSession.swift"
+      - path: iOS/DictatorKeyboard
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: design.irons.dictator.keyboard
+        PRODUCT_NAME: DictatorKeyboard
+        INFOPLIST_FILE: iOS/DictatorKeyboard/Info.plist
+        CODE_SIGN_ENTITLEMENTS: iOS/DictatorKeyboard/DictatorKeyboard.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+schemes:
+  Dictator (Mac):
+    build:
+      targets:
+        DictatorMac: all
+    run:
+      config: Debug
+  Dictator (iOS):
+    build:
+      targets:
+        DictatorIOS: all
+    run:
+      config: Debug
