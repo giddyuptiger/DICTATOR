@@ -533,7 +533,11 @@ final class KeyboardViewController: UIInputViewController {
             statusLabel.text = "Add your Groq key in Dictator"
         case .needsSession:
             applyPill(Self.pillBlue)
-            statusLabel.text = wakeMessage ?? "Tap to wake Dictator"
+            // Honest copy: a keyboard extension cannot reliably launch its
+            // container app on modern iOS, so we instruct rather than promise a
+            // tap that often can't deliver. The tap still attempts a launch (it
+            // works on some setups), but the words tell the user the reliable path.
+            statusLabel.text = wakeMessage ?? "Open the Dictator app to wake it"
         case .waking:
             applyPill(Self.pillIndigo)
             statusLabel.text = "Waking Dictator…"

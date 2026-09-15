@@ -340,6 +340,23 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.21 — honest wake copy (a keyboard cannot launch its app) (2026-09-15)
+
+Faced a hard platform limit honestly instead of tweaking around it. A keyboard
+extension cannot reliably launch its container app on modern iOS: the sanctioned
+`extensionContext.open` returns false for keyboards, and the responder-chain
+`openURL` workaround is unreliable and increasingly blocked. Keyboards also can't
+fire haptics or custom sounds. So "Tap to wake Dictator" promised three things
+the keyboard physically can't do, which is why the button "did nothing".
+
+The needs-session copy is now "Open the Dictator app to wake it" — an instruction,
+not a false promise. The tap still attempts a launch (it works on some setups)
+and still self-corrects to the same instruction on failure, but the words now set
+the right expectation. The real answer is residency: opening the app once keeps it
+alive in the background (silent keep-alive) so the wake state is rarely seen;
+Low Power Mode / a near-empty battery makes iOS jettison the app far more
+aggressively, which is when the wake state shows up.
+
 ### 0.1.20 — mode labels preview their output; smarter emoji placement (2026-09-15)
 
 - Mode labels now preview the formatting: "Casual" and "Formal" are capitalised
