@@ -379,6 +379,24 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.34 — stop the "Turn on Full Access" pill from flapping (2026-09-15)
+
+Device report: the pill sat on "Turn on Full Access for Dictator", and tapping
+it flashed "Waking Dictator" → "Tap to talk" → straight back to "Turn on Full
+Access", so it did nothing. Cause: refreshMode() hard-gated on iOS's
+`hasFullAccess` flag, which is UNRELIABLE — it flaps to false right after a
+reinstall or a keyboard switch. The brief "Tap to talk" proved the keyboard had
+actually reached the app through the App Group (which it went to .ready on), then
+the 1 s modeWatch tick re-read hasFullAccess == false and slammed it back to
+needsFullAccess.
+
+The keyboard does NOT need Full Access: it talks to the app only via the App
+Group and Darwin notifications, both of which work without it (Full Access only
+gates network, and the keyboard does zero networking — the container app does
+all transcription). So refreshMode() now trusts the empirical signal: if the app
+is alive and reachable, go .ready and stay there; only fall back to
+needsFullAccess/needsSession when the app genuinely is not answering.
+
 ### 0.1.33 — waking from the keyboard actually records (2026-09-15)
 
 The keyboard's cold-start URL (dictator://dictate) launched the app and

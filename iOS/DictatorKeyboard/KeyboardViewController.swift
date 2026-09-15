@@ -256,14 +256,26 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func refreshMode() {
-        guard hasFullAccess else { mode = .needsFullAccess; return }
-        guard let k = SharedStore.groqAPIKey, !k.isEmpty else { mode = .needsKey; return }
+        // A live, reachable app proves the App Group + Darwin path works — which
+        // is ALL this keyboard needs. Both work WITHOUT Full Access (Full Access
+        // only gates network, and the keyboard does none — the container app does
+        // every network call). So NEVER demote a working keyboard to "Turn on
+        // Full Access": iOS's hasFullAccess flag is unreliable and flaps to false
+        // right after a reinstall or a keyboard switch, which is exactly what made
+        // the pill bounce waking → "Tap to talk" → "Turn on Full Access". Trust
+        // the empirical signal (is the app actually answering?) over the flag.
         if appIsAlive {
+            guard let k = SharedStore.groqAPIKey, !k.isEmpty else { mode = .needsKey; return }
             wakeMessage = nil   // a live app clears any stale "couldn't open" note
             mode = .ready
-        } else {
-            mode = .needsSession
+            return
         }
+        // The app is not answering. Point at the most useful fix: without Full
+        // Access the app also can't be launched from here, so surface that first;
+        // otherwise it just needs waking (or a key).
+        if !hasFullAccess { mode = .needsFullAccess; return }
+        guard let k = SharedStore.groqAPIKey, !k.isEmpty else { mode = .needsKey; return }
+        mode = .needsSession
     }
 
     // MARK: - Actions
