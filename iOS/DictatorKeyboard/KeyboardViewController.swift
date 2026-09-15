@@ -1041,10 +1041,25 @@ final class KeyboardViewController: UIInputViewController {
         heightConstraint?.constant = compact ? 196 : 268
     }
 
+    /// The keyboard's light/dark, from the host's requested keyboard appearance,
+    /// falling back to the system trait. This is the signal that matches the
+    /// system keyboard sitting next to us.
+    private func resolveDark() -> Bool {
+        switch textDocumentProxy.keyboardAppearance {
+        case .dark:  return true
+        case .light: return false
+        default:     return traitCollection.userInterfaceStyle == .dark
+        }
+    }
+
     private func applyTheme() {
-        // Colours are dynamic (see `dynamicPalette`), so board, keys, bar and mic
-        // all resolve against the same trait and can never end up on different
-        // themes. This just (re)applies them and rebuilds the keys.
+        // FORCE one appearance on the whole keyboard. Dynamic colours were not
+        // enough: in a keyboard extension the root view and the key buttons can
+        // resolve their light/dark trait DIFFERENTLY, which is what produced the
+        // "light board, dark keys" mix even with dynamic colours. Pinning
+        // overrideUserInterfaceStyle makes every descendant inherit the same
+        // style, so board, keys, bar and glyphs all resolve to it — no mix.
+        view.overrideUserInterfaceStyle = resolveDark() ? .dark : .light
         view.backgroundColor = palette.board
         modeButton.backgroundColor = palette.special
         modeButton.setTitleColor(palette.specialText, for: .normal)

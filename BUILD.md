@@ -379,6 +379,21 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.31 — the REAL fix for the "light board, dark keys" theme mix (2026-09-15)
+
+The grey-board/dark-keys mix survived two earlier attempts (a cached bool in
+0.1.16, dynamic colours in 0.1.19) because dynamic colours only help if every
+view resolves its light/dark trait the same way — and in a keyboard extension
+the root input view and the key buttons can resolve them DIFFERENTLY, so the
+board came up light while the keys stayed dark. The fix is to stop leaving it to
+per-view trait resolution: `applyTheme()` now pins
+`view.overrideUserInterfaceStyle` to a single resolved appearance
+(`resolveDark()` — from the host's requested `keyboardAppearance`, falling back
+to the system trait), so every descendant inherits the same style and board,
+keys, bar and glyphs can never end up on different themes. This only shows once
+a build after 0.1.30 (build 33, first green after the Xcode 27 CI fix) reaches
+TestFlight — the device was still running a stale pre-fix build before that.
+
 ### 0.1.30 — Swift 5 language mode to unbreak CI on Xcode 27 (2026-09-15)
 
 Builds 29–32 all failed the iOS archive (exit 65) after Xcode Cloud updated to
