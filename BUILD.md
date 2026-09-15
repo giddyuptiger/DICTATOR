@@ -352,6 +352,17 @@ is reasoned from the error code, not yet watched on device.** To confirm: run
 `idevicesyslog -n` while tapping the mic from Notes and check that the
 kAUStartIO refusal is gone.
 
+### 0.1.10 — wake button launches the app again (2026-09-14)
+
+The cold-start wake button ("Open Dictator once") did nothing when tapped,
+because `extensionContext.open` returns false and won't launch an app from a
+keyboard on current iOS. Re-added the responder-chain walk to
+`UIApplication.openURL(_:)` in the keyboard's `coldStart`, which does launch the
+container app. **This is private-API-adjacent and an App Store review risk.**
+Jeremy chose to keep it for TestFlight (2026-09-14); remove or reconsider it
+before any App Store submission. With 0.1.9's always-on mic the app usually stays
+resident, so this path is only hit after the app is killed.
+
 ### 0.1.9 — the real mic-start fix: foreground-start, always-on input (2026-09-14)
 
 Device logs from build 11 settled the kAUStartIO 2003329396 question for good.

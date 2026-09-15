@@ -306,12 +306,15 @@ final class KeyboardViewController: UIInputViewController {
         statusLabel.text = "Opening Dictator. Swipe back and tap again."
         guard let url = URL(string: "dictator://dictate") else { return }
 
-        // extensionContext.open is the only sanctioned way for an extension to
-        // open a URL. On current iOS a keyboard gets `false` back and nothing
-        // launches, so the honest fallback is to ask for a manual open. The
-        // responder-chain openURL: walk that used to live here did launch the
-        // app, but it is private-API-adjacent and was removed ahead of App
-        // Store submission (2026-09-14).
+        // extensionContext.open is the sanctioned API, but on current iOS a
+        // keyboard gets `false` back and nothing launches, so the wake button
+        // does nothing. Walking the responder chain to UIApplication.openURL(_:)
+        // DOES launch the container app from a keyboard. It is
+        // private-API-adjacent and an App Store review risk (Jeremy chose to
+        // keep it for TestFlight, 2026-09-14); remove or reconsider it before
+        // any App Store submission. See BUILD.md.
+        if launchViaResponderChain(url) { return }
+
         extensionContext?.open(url) { [weak self] opened in
             Task { @MainActor in
                 guard let self else { return }
@@ -320,6 +323,23 @@ final class KeyboardViewController: UIInputViewController {
                     : "Open the Dictator app once to start."
             }
         }
+    }
+
+    /// Walks the responder chain to find an object that responds to openURL:
+    /// (that is UIApplication) and calls it. This is what actually launches the
+    /// container app from a keyboard extension; the sanctioned API refuses.
+    @discardableResult
+    private func launchViaResponderChain(_ url: URL) -> Bool {
+        let selector = NSSelectorFromString("openURL:")
+        var responder: UIResponder? = self
+        while let r = responder {
+            if r.responds(to: selector) {
+                r.perform(selector, with: url)
+                return true
+            }
+            responder = r.next
+        }
+        return false
     }
 
     private func consumeResult() {
