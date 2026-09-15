@@ -256,7 +256,8 @@ struct ContentView: View {
         case .superCasual: return "Lowercase, contractions, barely any punctuation. How you text."
         case .casual:      return "Normal writing. Sentence case, ordinary punctuation."
         case .formal:      return "Complete sentences, no contractions. Disciplined, not inflated."
-        case .emoji:       return "Casual, plus exactly one emoji per message."
+        case .expressive:  return "Casual, with ! and … where the feeling calls for it."
+        case .emoji:       return "Casual, plus one emoji placed where it fits best."
         }
     }
 

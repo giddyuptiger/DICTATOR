@@ -340,6 +340,15 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.23 — Expressive mode (2026-09-15)
+
+A fifth mode: Expressive. Casual base, but it punctuates for feeling — an
+exclamation point where the speaker is genuinely excited or emphatic, an ellipsis
+for a real trailing-off or pause — matched to the speaker's actual energy, without
+changing any words or over-using either mark. Order is super casual · Casual ·
+Formal · Expressive · Emoji. The emoji-mode blurb was also updated to reflect its
+new "placed where it fits" behavior.
+
 ### 0.1.22 — self-healing engine (fix the "zombie, only force-quit revives it" bug) (2026-09-15)
 
 The worst reliability bug, reproduced on a full battery so it was not Low Power

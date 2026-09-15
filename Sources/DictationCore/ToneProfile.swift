@@ -158,6 +158,7 @@ public enum DictationMode: String, CaseIterable, Sendable {
     case superCasual
     case casual
     case formal
+    case expressive
     case emoji
 
     /// The label previews the mode's own output: the capitalised ones ("Casual",
@@ -169,6 +170,7 @@ public enum DictationMode: String, CaseIterable, Sendable {
         case .superCasual: return "super casual"
         case .casual:      return "Casual"
         case .formal:      return "Formal"
+        case .expressive:  return "Expressive"
         case .emoji:       return "Emoji"
         }
     }
@@ -200,6 +202,17 @@ public enum DictationMode: String, CaseIterable, Sendable {
             connectives over spoken ones. Do not add flourish, length, or business \
             vocabulary the speaker did not use. This must read visibly more formal \
             than normal writing, while keeping the speaker's meaning exactly.
+            """
+        case .expressive:
+            return """
+            EXPRESSIVE. A casual base — sentence case, contractions — but punctuate \
+            for feeling. Use an exclamation point where the speaker is genuinely \
+            excited, emphatic, or delighted ("that's amazing!", "let's go!"), and \
+            an ellipsis (…) for a real trailing-off, hesitation, or dramatic pause \
+            ("I don't know… maybe"). Read the speaker's actual energy and match it: \
+            do not end every sentence in "!", do not manufacture excitement that is \
+            not there, and never change or add words — only the punctuation carries \
+            the feeling. When in doubt, an ordinary period is fine.
             """
         case .emoji:
             return """
