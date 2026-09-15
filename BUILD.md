@@ -379,6 +379,18 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.33 — waking from the keyboard actually records (2026-09-15)
+
+The keyboard's cold-start URL (dictator://dictate) launched the app and
+immediately called beginCapture(), which no-ops unless the engine is already
+.warm. On a cold launch it never is (warmUp is async), so waking from the
+keyboard opened the app but recorded nothing. onOpenURL now calls a new
+warmAndCapture(): resync/warm, wait up to ~2s for the engine to reach .warm,
+then begin. So a wake genuinely starts a recording.
+
+(Crash still open. The app has Details → "Report a problem", which dumps the
+activity log that survives a crash — that's what will pin the crash down.)
+
 ### 0.1.32 — hold backspace to clear a lot, fast (2026-09-15)
 
 Hold-to-repeat backspace existed since the first commit but ran a flat

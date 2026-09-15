@@ -700,6 +700,28 @@ public final class BackgroundRecorder: ObservableObject {
 
     // MARK: - Capture
 
+    /// Warm the engine if needed, then begin capturing. This is what the
+    /// keyboard's cold-start URL (dictator://dictate) drives: the app may have
+    /// just launched from cold, so we cannot assume the engine is warm. Warm (or
+    /// resync a dead one), wait for it to actually reach `.warm`, then capture —
+    /// so waking from the keyboard genuinely starts a recording.
+    public func warmAndCapture() async {
+        if state != .warm { await resync() }
+        // resync() runs warmUp(); give it a brief window to land on .warm before
+        // we begin, since the audio start is off the main thread.
+        if state != .warm {
+            for _ in 0..<20 {   // up to ~2s
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                if state == .warm || isFailed { break }
+            }
+        }
+        guard state == .warm else {
+            log("warmAndCapture: engine not warm (\(state)); not capturing")
+            return
+        }
+        beginCapture()
+    }
+
     public func beginCapture() {
         guard state == .warm else {
             log("start ignored, state \(state)")

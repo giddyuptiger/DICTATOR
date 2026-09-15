@@ -22,7 +22,13 @@ struct DictatorApp: App {
                 }
                 .onOpenURL { url in
                     // dictator://dictate — the keyboard's cold-start fallback.
-                    if url.host == "dictate" { recorder.beginCapture() }
+                    // The app may be launching cold from this URL, so the engine
+                    // is not warm yet and a bare beginCapture() would no-op. Warm
+                    // (or resync) first, THEN begin, so waking from the keyboard
+                    // actually starts recording instead of silently doing nothing.
+                    if url.host == "dictate" {
+                        Task { await recorder.warmAndCapture() }
+                    }
                 }
         }
     }
