@@ -340,6 +340,24 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.16 — fix the "grey board, dark keys" theme mix (2026-09-15)
+
+The real cause of the keyboard looking wrong in light mode: `palette` was a
+computed property that read the live keyboard appearance on *every* access, and
+the board (set in `applyTheme`) and the keys (built in `rebuildKeys`, which also
+runs on a plane switch and during initial layout) were read at different
+lifecycle moments. A keyboard extension's appearance is not stable across those
+moments — `keyboardAppearance` is commonly `.default` at load and resolves
+later, and the trait settles after layout — so the board could come from one
+theme and the keys from another, i.e. a light/grey board with dark keys.
+
+Fix: resolve the theme once, in `applyTheme`, into a cached `resolvedDark`, and
+have every element read that. `applyTheme` rebuilds the keys in the same pass, so
+board and keys are always the same theme. Added a `viewDidAppear` re-apply for
+the case where the appearance only finishes resolving once on screen. Also from
+0.1.15: amber needs-setup states, indigo transcribing, a shadow under the mic
+pill.
+
 ### 0.1.15 — crash-durable long recordings + auto-stop feedback (2026-09-15)
 
 Follow-ups on the long-dictation work, plus a keyboard polish pass.

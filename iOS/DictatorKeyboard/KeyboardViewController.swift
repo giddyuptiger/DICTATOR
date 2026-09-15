@@ -70,7 +70,43 @@ final class KeyboardViewController: UIInputViewController {
         let specialText: UIColor
     }
 
-    private var isDarkKeyboard: Bool {
+    /// Tuned to sit beside Apple's dark keyboard: a near-black board, a raised
+    /// mid-grey letter key that lightens on press, darker special keys, white
+    /// glyphs.
+    private static let darkPalette = Palette(
+        board:          UIColor(white: 0.11, alpha: 1),   // #1C1C1E
+        key:            UIColor(white: 0.28, alpha: 1),   // #48484A
+        keyPressed:     UIColor(white: 0.40, alpha: 1),   // lighter on touch
+        special:        UIColor(white: 0.19, alpha: 1),   // #313133
+        specialPressed: UIColor(white: 0.28, alpha: 1),
+        keyText:        .white,
+        specialText:    .white
+    )
+
+    /// Light: a cool grey board, white letter keys, grey special keys, ink
+    /// glyphs. Keys darken slightly on press, as Apple's do.
+    private static let lightPalette = Palette(
+        board:          UIColor(red: 0.820, green: 0.831, blue: 0.859, alpha: 1), // #D1D4DB
+        key:            .white,
+        keyPressed:     UIColor(red: 0.894, green: 0.902, blue: 0.918, alpha: 1), // #E4E6EA
+        special:        UIColor(red: 0.675, green: 0.698, blue: 0.741, alpha: 1), // #ACB2BD
+        specialPressed: UIColor(red: 0.749, green: 0.769, blue: 0.804, alpha: 1), // #BFC4CD
+        keyText:        UIColor(red: 0.106, green: 0.106, blue: 0.122, alpha: 1), // #1B1B1F ink
+        specialText:    UIColor(red: 0.106, green: 0.106, blue: 0.122, alpha: 1)
+    )
+
+    /// The resolved theme, decided once per `applyTheme` and cached. This is the
+    /// fix for the "grey board with dark keys" mix: `palette` used to read the
+    /// live appearance on every access, so the board (set in applyTheme) and the
+    /// keys (built in rebuildKeys, which also runs on a plane switch and during
+    /// initial layout) could be computed at different lifecycle moments — and a
+    /// keyboard extension's appearance is NOT stable across them (keyboardApp-
+    /// earance is often .default at load and resolves later; the trait settles
+    /// after layout). Caching means every element reads the same decision, so the
+    /// board and keys are always the same theme.
+    private var resolvedDark = false
+
+    private func resolveDark() -> Bool {
         switch textDocumentProxy.keyboardAppearance {
         case .dark:  return true
         case .light: return false
@@ -79,32 +115,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var palette: Palette {
-        if isDarkKeyboard {
-            // Tuned to sit beside Apple's dark keyboard: a near-black board, a
-            // raised mid-grey letter key that lightens on press, and darker
-            // special keys. White glyphs.
-            return Palette(
-                board:          UIColor(white: 0.11, alpha: 1),   // #1C1C1E
-                key:            UIColor(white: 0.28, alpha: 1),   // #48484A
-                keyPressed:     UIColor(white: 0.40, alpha: 1),   // lighter on touch
-                special:        UIColor(white: 0.19, alpha: 1),   // #313133
-                specialPressed: UIColor(white: 0.28, alpha: 1),
-                keyText:        .white,
-                specialText:    .white
-            )
-        } else {
-            // Light: a cool grey board, white letter keys, grey special keys,
-            // ink glyphs. Keys darken slightly on press, as Apple's do.
-            return Palette(
-                board:          UIColor(red: 0.820, green: 0.831, blue: 0.859, alpha: 1), // #D1D4DB
-                key:            .white,
-                keyPressed:     UIColor(red: 0.894, green: 0.902, blue: 0.918, alpha: 1), // #E4E6EA
-                special:        UIColor(red: 0.675, green: 0.698, blue: 0.741, alpha: 1), // #ACB2BD
-                specialPressed: UIColor(red: 0.749, green: 0.769, blue: 0.804, alpha: 1), // #BFC4CD
-                keyText:        UIColor(red: 0.106, green: 0.106, blue: 0.122, alpha: 1), // #1B1B1F ink
-                specialText:    UIColor(red: 0.106, green: 0.106, blue: 0.122, alpha: 1)
-            )
-        }
+        resolvedDark ? Self.darkPalette : Self.lightPalette
     }
 
     // MARK: - Lifecycle
@@ -129,6 +140,15 @@ final class KeyboardViewController: UIInputViewController {
         updateHeight()
         refreshMode()
         startModeWatch()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // A keyboard extension's appearance can finish resolving only after it is
+        // on screen (keyboardAppearance is often .default until then). Re-apply so
+        // the final visible theme is correct and, crucially, uniform — never a
+        // board from one theme and keys from another.
+        if resolveDark() != resolvedDark { applyTheme() }
     }
 
     override func traitCollectionDidChange(_ previous: UITraitCollection?) {
@@ -999,6 +1019,10 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func applyTheme() {
+        // Decide the theme ONCE here; board, keys, bar and mic all read the
+        // cached result via `palette`, so they can never end up on different
+        // themes (the old "grey board, dark keys" mix).
+        resolvedDark = resolveDark()
         view.backgroundColor = palette.board
         modeButton.backgroundColor = palette.special
         modeButton.setTitleColor(palette.specialText, for: .normal)
