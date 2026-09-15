@@ -340,6 +340,24 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### Mac fixes — Settings window + Electron text insertion (2026-09-15)
+
+Mac-only (no marketing-version bump; the Mac app is a local build, not TestFlight).
+First real on-device Mac run surfaced two bugs; dictation itself worked (local
+Parakeet, ~180 ms).
+
+- *Settings window would not open* from the menu bar. `NSApp.sendAction(
+  showSettingsWindow:)` silently no-ops for a menu-bar-only (LSUIElement) app on
+  macOS 14+. Switched the menu's "Settings…"/"Vocabulary…" to the SwiftUI
+  `@Environment(\.openSettings)` action.
+- *Text did not insert in Electron apps* (Claude's desktop app; Slack/VS Code
+  would be the same) while it worked in native apps like Messages. The
+  Accessibility write reports success in Electron but inserts nothing, so we never
+  fell back. Now paste + Cmd-V is the universal path (clipboard saved/restored),
+  the paste is posted at the HID level (Electron ignores a session-level synthetic
+  Cmd-V), and the clipboard restore waits 350 ms so a slow app finishes pasting
+  first.
+
 ### 0.1.24 — fix speaker pops + "thank you" (unzeroed silence buffer) + loop-proof self-heal (2026-09-15)
 
 Serious regression: constant pops and cracks from the speaker whenever the app is

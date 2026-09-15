@@ -20,7 +20,12 @@ public struct MacTextInserter {
 
     public func insert(_ text: String) {
         guard !text.isEmpty else { return }
-        if insertViaAccessibility(text) { return }
+        // Pasteboard + Cmd-V is the universal path. The Accessibility write is
+        // cleaner (no clipboard touch) and works in native AppKit apps like
+        // Messages, but in Electron/Chromium apps (Claude, Slack, VS Code, Discord)
+        // it reports success while inserting nothing — so we never fell back and
+        // the text vanished. Pasting works in BOTH, and we save/restore the
+        // clipboard so it stays invisible. Reliability beats the clipboard nicety.
         insertViaPasteboard(text)
     }
 
@@ -82,9 +87,12 @@ public struct MacTextInserter {
 
         postCommandV()
 
-        // Restore after the paste has been consumed. 150 ms is comfortable; below
-        // about 80 ms you start racing slower apps.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        // Restore after the paste has been consumed. Electron/Chromium apps
+        // process a synthetic paste slower than native ones, and restoring too
+        // early puts the old clipboard back before the app has read the new text
+        // (the paste then lands as nothing, or the old contents). 350 ms is safe
+        // across the slow ones without being noticeable.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             pasteboard.clearContents()
             for (type, data) in saved {
                 pasteboard.setData(data, forType: type)
@@ -107,7 +115,10 @@ public struct MacTextInserter {
         let up = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false)
         up?.flags = .maskCommand
 
-        down?.post(tap: .cgAnnotatedSessionEventTap)
-        up?.post(tap: .cgAnnotatedSessionEventTap)
+        // Post at the HID level, as if from the hardware, rather than the annotated
+        // session tap. Stubborn Electron apps (Claude's desktop app among them)
+        // ignore a session-level synthetic Cmd-V but honour an HID-level one.
+        down?.post(tap: .cghidEventTap)
+        up?.post(tap: .cghidEventTap)
     }
 }

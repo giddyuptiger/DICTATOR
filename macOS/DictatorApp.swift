@@ -32,6 +32,16 @@ struct DictatorMacApp: App {
 
 struct MenuContent: View {
     @EnvironmentObject var app: AppDelegate
+    // The reliable way to open a Settings scene from a menu-bar-only (LSUIElement)
+    // app on macOS 14+. The old NSApp.sendAction(showSettingsWindow:) selector
+    // silently does nothing here, which is why "Settings…" appeared dead.
+    @Environment(\.openSettings) private var openSettingsAction
+
+    private func openSettings(_ tab: SettingsTab) {
+        app.selectedTab = tab
+        NSApp.activate(ignoringOtherApps: true)
+        openSettingsAction()
+    }
 
     var body: some View {
         Text(app.status)
@@ -60,12 +70,12 @@ struct MenuContent: View {
                 }
             }
         }
-        Button("Vocabulary…") { app.showSettings(tab: .vocabulary) }
+        Button("Vocabulary…") { openSettings(.vocabulary) }
         if app.needsAccessibility {
             Text("Waiting for Accessibility permission").font(.caption).foregroundStyle(.orange)
         }
         Divider()
-        Button("Settings…") { app.showSettings(tab: .setup) }
+        Button("Settings…") { openSettings(.setup) }
         Button("Quit Dictator") { NSApplication.shared.terminate(nil) }
     }
 }
