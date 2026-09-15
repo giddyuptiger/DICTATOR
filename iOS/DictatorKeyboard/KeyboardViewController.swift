@@ -70,53 +70,34 @@ final class KeyboardViewController: UIInputViewController {
         let specialText: UIColor
     }
 
-    /// Tuned to sit beside Apple's dark keyboard: a near-black board, a raised
-    /// mid-grey letter key that lightens on press, darker special keys, white
-    /// glyphs.
-    private static let darkPalette = Palette(
-        board:          UIColor(white: 0.11, alpha: 1),   // #1C1C1E
-        key:            UIColor(white: 0.28, alpha: 1),   // #48484A
-        keyPressed:     UIColor(white: 0.40, alpha: 1),   // lighter on touch
-        special:        UIColor(white: 0.19, alpha: 1),   // #313133
-        specialPressed: UIColor(white: 0.28, alpha: 1),
-        keyText:        .white,
-        specialText:    .white
-    )
-
-    /// Light: a cool grey board, white letter keys, grey special keys, ink
-    /// glyphs. Keys darken slightly on press, as Apple's do.
-    private static let lightPalette = Palette(
-        board:          UIColor(red: 0.820, green: 0.831, blue: 0.859, alpha: 1), // #D1D4DB
-        key:            .white,
-        keyPressed:     UIColor(red: 0.894, green: 0.902, blue: 0.918, alpha: 1), // #E4E6EA
-        special:        UIColor(red: 0.675, green: 0.698, blue: 0.741, alpha: 1), // #ACB2BD
-        specialPressed: UIColor(red: 0.749, green: 0.769, blue: 0.804, alpha: 1), // #BFC4CD
-        keyText:        UIColor(red: 0.106, green: 0.106, blue: 0.122, alpha: 1), // #1B1B1F ink
-        specialText:    UIColor(red: 0.106, green: 0.106, blue: 0.122, alpha: 1)
-    )
-
-    /// The resolved theme, decided once per `applyTheme` and cached. This is the
-    /// fix for the "grey board with dark keys" mix: `palette` used to read the
-    /// live appearance on every access, so the board (set in applyTheme) and the
-    /// keys (built in rebuildKeys, which also runs on a plane switch and during
-    /// initial layout) could be computed at different lifecycle moments — and a
-    /// keyboard extension's appearance is NOT stable across them (keyboardApp-
-    /// earance is often .default at load and resolves later; the trait settles
-    /// after layout). Caching means every element reads the same decision, so the
-    /// board and keys are always the same theme.
-    private var resolvedDark = false
-
-    private func resolveDark() -> Bool {
-        switch textDocumentProxy.keyboardAppearance {
-        case .dark:  return true
-        case .light: return false
-        default:     return traitCollection.userInterfaceStyle == .dark
-        }
+    /// Every colour is a DYNAMIC colour: UIKit resolves it against the view's own
+    /// trait (its light/dark appearance) at draw time. The board, the keys and the
+    /// glyphs are therefore ALWAYS the same theme — they resolve against the same
+    /// trait at the same moment, so there is no manual light/dark flag that the
+    /// board and the keys could read at different lifecycle points. That flag was
+    /// the cause of the "grey board, black keys" mix: two earlier attempts (live
+    /// read, then a cached bool) both still let the two diverge. Dynamic colours
+    /// make a mix structurally impossible, and they follow the system appearance
+    /// automatically (per Jeremy: always follow system) with no re-theming code.
+    ///
+    /// Light: cool grey board, white letter keys, grey special keys, ink glyphs.
+    /// Dark: near-black board, raised mid-grey keys, darker special keys, white
+    /// glyphs. Keys shift on press in both.
+    private static func dyn(_ light: UIColor, _ dark: UIColor) -> UIColor {
+        UIColor { $0.userInterfaceStyle == .dark ? dark : light }
     }
 
-    private var palette: Palette {
-        resolvedDark ? Self.darkPalette : Self.lightPalette
-    }
+    private static let dynamicPalette = Palette(
+        board:          dyn(rgb(209, 212, 219), rgb(28,  28,  30)),  // #D1D4DB / #1C1C1E
+        key:            dyn(.white,             rgb(72,  72,  74)),  // white   / #48484A
+        keyPressed:     dyn(rgb(228, 230, 234), rgb(102, 102, 104)),// #E4E6EA / lighter
+        special:        dyn(rgb(172, 178, 189), rgb(49,  49,  51)),  // #ACB2BD / #313133
+        specialPressed: dyn(rgb(191, 196, 205), rgb(72,  72,  74)),
+        keyText:        dyn(rgb(27,  27,  31),  .white),             // ink / white
+        specialText:    dyn(rgb(27,  27,  31),  .white)
+    )
+
+    private var palette: Palette { Self.dynamicPalette }
 
     // MARK: - Pill highlights
 
@@ -167,11 +148,9 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // A keyboard extension's appearance can finish resolving only after it is
-        // on screen (keyboardAppearance is often .default until then). Re-apply so
-        // the final visible theme is correct and, crucially, uniform — never a
-        // board from one theme and keys from another.
-        if resolveDark() != resolvedDark { applyTheme() }
+        // Colours are dynamic and resolve themselves; a re-apply here keeps the
+        // key glyphs crisp if the trait only finished resolving on screen.
+        applyTheme()
     }
 
     override func traitCollectionDidChange(_ previous: UITraitCollection?) {
@@ -1036,10 +1015,9 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func applyTheme() {
-        // Decide the theme ONCE here; board, keys, bar and mic all read the
-        // cached result via `palette`, so they can never end up on different
-        // themes (the old "grey board, dark keys" mix).
-        resolvedDark = resolveDark()
+        // Colours are dynamic (see `dynamicPalette`), so board, keys, bar and mic
+        // all resolve against the same trait and can never end up on different
+        // themes. This just (re)applies them and rebuilds the keys.
         view.backgroundColor = palette.board
         modeButton.backgroundColor = palette.special
         modeButton.setTitleColor(palette.specialText, for: .normal)

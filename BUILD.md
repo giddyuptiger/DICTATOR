@@ -340,6 +340,25 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.19 — dynamic-colour theme (kills the mix for good) + launch crash + ms UX (2026-09-15)
+
+Three fixes.
+
+1. *The "grey board, black keys" mix, killed structurally.* Two earlier attempts
+   (a live appearance read, then a cached bool) both still let the board and the
+   keys resolve to different themes. The keyboard now uses **dynamic UIColors**:
+   every colour resolves against the view's trait at draw time, so the board, the
+   keys and the glyphs are always the same theme — a mix is impossible, and it
+   follows the system appearance automatically (per Jeremy: always follow system).
+   No manual re-theming flag remains.
+2. *Launch crash.* `readPending` bound `Data`'s raw buffer directly to `Float`,
+   which assumes 4-byte alignment `Data` does not guarantee — undefined and able
+   to crash, and it runs on launch precisely when recovering a file an earlier
+   crash left behind (so: crashes on open, works after a restart). Now it copies
+   into an aligned `[Float]` buffer with `copyBytes`.
+3. *Milliseconds UX.* The Details "Last dictation → Time" showed raw "3101 ms";
+   it now reads "3.1s".
+
 ### 0.1.18 — pastel highlights instead of neon (2026-09-15)
 
 Cosmetic pass. The saturated system colours (neon blue/red/indigo/orange) read

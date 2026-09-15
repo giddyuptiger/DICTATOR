@@ -22,7 +22,7 @@ struct DetailsView: View {
 
             Section("Last dictation") {
                 if SharedStore.lastLatencyMS > 0 {
-                    LabeledContent("Time", value: "\(SharedStore.lastLatencyMS) ms")
+                    LabeledContent("Time", value: Self.friendlyDuration(SharedStore.lastLatencyMS))
                 } else {
                     Text("Nothing yet").foregroundStyle(.secondary)
                 }
@@ -73,5 +73,10 @@ struct DetailsView: View {
         ]
         lines.append(contentsOf: recorder.eventLog)
         return lines.joined(separator: "\n")
+    }
+
+    /// Latency as a person would say it, not raw milliseconds. "0.8s", "3.1s".
+    static func friendlyDuration(_ ms: Int) -> String {
+        String(format: "%.1fs", Double(ms) / 1000)
     }
 }

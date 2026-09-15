@@ -351,9 +351,17 @@ public final class BackgroundRecorder: ObservableObject {
               let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
         let count = data.count / MemoryLayout<Float>.stride
         guard count > 0 else { return nil }
-        return data.withUnsafeBytes { raw in
-            Array(raw.bindMemory(to: Float.self).prefix(count))
+        // Copy the bytes into a properly-aligned Float buffer. Binding Data's raw
+        // buffer directly to Float assumes 4-byte alignment that Data does not
+        // guarantee — reading through it is undefined and can crash on launch,
+        // which is exactly when this runs (recovering a file left by an earlier
+        // crash). copyBytes is alignment-safe.
+        var floats = [Float](repeating: 0, count: count)
+        let copied = floats.withUnsafeMutableBytes { dst in
+            data.copyBytes(to: dst, count: count * MemoryLayout<Float>.stride)
         }
+        guard copied == count * MemoryLayout<Float>.stride else { return nil }
+        return floats
     }
 
     private func clearPending() {
