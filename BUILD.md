@@ -379,6 +379,17 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.30 — Swift 5 language mode to unbreak CI on Xcode 27 (2026-09-15)
+
+Builds 29–32 all failed the iOS archive (exit 65) after Xcode Cloud updated to
+Xcode 27 beta. Under Xcode 27's Swift 6 language mode, data-race / Sendable
+issues that were warnings became hard errors (the OneShot @Sendable capture was
+one; there were more). Rather than chase each one under a beta toolchain, set
+SWIFT_VERSION to 5.0 (Swift 5 language mode) with SWIFT_STRICT_CONCURRENCY still
+minimal — the concurrency code (actors, @Sendable, MainActor.assumeIsolated) all
+compiles, the data-race issues drop back to warnings, and the archive builds. A
+deliberate Swift 6 migration can happen later, not forced by a CI toolchain bump.
+
 ### 0.1.29 — Mac listening indicator (Wispr-style overlay) (2026-09-15)
 
 A floating "I'm listening" overlay on the Mac (macOS/ListeningIndicator.swift):

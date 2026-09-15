@@ -23,11 +23,17 @@ packages:
 
 settings:
   base:
-    SWIFT_VERSION: "6.0"
+    # Swift 5 LANGUAGE MODE on purpose. Xcode Cloud updated to Xcode 27, whose
+    # Swift 6 language mode turns data-race / Sendable issues (e.g. capturing a
+    # non-Sendable value in a @Sendable closure) into HARD ERRORS, which broke the
+    # iOS archive (exit 65) even though the same code built before. Swift 5 mode
+    # (with SWIFT_STRICT_CONCURRENCY: minimal below) keeps those as warnings, so
+    # the app builds. Revisit a full Swift 6 migration deliberately later.
+    SWIFT_VERSION: "5.0"
     # Ratchet this on EVERY push. Xcode Cloud supplies the build number, but the
     # version is what TestFlight shows first, and a static one makes every
     # build look the same. 0.1.x until the first App Store release.
-    MARKETING_VERSION: "0.1.29"
+    MARKETING_VERSION: "0.1.30"
     CURRENT_PROJECT_VERSION: "1"
     # Set this to your Apple Developer Team ID, or pick the team in Xcode once.
     DEVELOPMENT_TEAM: W9K8HB89TY
