@@ -340,6 +340,16 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.20 — mode labels preview their output; smarter emoji placement (2026-09-15)
+
+- Mode labels now preview the formatting: "Casual" and "Formal" are capitalised
+  (properly-cased output), while "super casual" is written lowercase because that
+  is exactly what it produces. Applies everywhere displayName shows (keyboard
+  button, iOS segmented control, Mac menu).
+- Emoji mode no longer always tacks one emoji on the end. It now places the
+  single emoji at the most expressive spot inline (right after the word it plays
+  off), falling back to the end only when the message builds to one final beat.
+
 ### 0.1.19 — dynamic-colour theme (kills the mix for good) + launch crash + ms UX (2026-09-15)
 
 Three fixes.

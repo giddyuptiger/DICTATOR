@@ -160,11 +160,13 @@ public enum DictationMode: String, CaseIterable, Sendable {
     case formal
     case emoji
 
-    /// Sentence case, shown on the keyboard mode button, the iOS segmented
-    /// control, and the Mac menu. Users read "Formal", not "formal".
+    /// The label previews the mode's own output: the capitalised ones ("Casual",
+    /// "Formal") signal properly-capitalised text, while "super casual" is written
+    /// lowercase because that is exactly what that mode produces. Shown on the
+    /// keyboard mode button, the iOS segmented control, and the Mac menu.
     public var displayName: String {
         switch self {
-        case .superCasual: return "Super casual"
+        case .superCasual: return "super casual"
         case .casual:      return "Casual"
         case .formal:      return "Formal"
         case .emoji:       return "Emoji"
@@ -201,10 +203,14 @@ public enum DictationMode: String, CaseIterable, Sendable {
             """
         case .emoji:
             return """
-            CASUAL, and ALWAYS end the message with exactly one emoji. Exactly one, \
-            for the whole message, at the very end. Choose it from what the message \
-            is about, not a generic smiley, and never use it to replace a word the \
-            speaker said. There is always an emoji that fits; add one every time.
+            CASUAL, and add exactly one emoji — placed at the most expressive spot \
+            in the message, which is usually NOT the end. Find the word or moment \
+            the emoji plays off best and put it right after that, inline: \
+            "grabbing coffee ☕ before the meeting", "that meeting was brutal 😮‍💨". \
+            Only fall back to the very end when the whole message builds to one \
+            beat. Exactly one emoji for the whole message; choose it from what that \
+            spot is about, not a generic smiley, and never use it to replace a word \
+            the speaker said. Always add one.
             """
         }
     }
