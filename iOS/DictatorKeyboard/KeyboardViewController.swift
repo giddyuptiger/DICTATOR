@@ -68,12 +68,16 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var statusLabel = makeStatus()
     private lazy var globeButton = makeGlobe()
     private lazy var undoButton  = makeUndo()
+    private lazy var redoButton  = makeRedo()
     private lazy var modeButton  = makeMode()
     /// Temporary diagnostic row: one button per app-open method, shown only when
     /// the app is not reachable, so we can find which technique launches Dictator
     /// on a real device/iOS. Remove once the winning method is confirmed.
     private lazy var debugRow    = makeDebugRow()
     private var lastInserted: String?
+    /// The text most recently removed by undo, so redo can put it back. Cleared
+    /// whenever a new dictation is inserted (that invalidates the redo history).
+    private var lastUndone: String?
     private var retryMessage: String?
     /// Set when a wake attempt failed, so the needsSession line can tell the
     /// truth ("couldn't open") instead of the generic "Tap to wake Dictator".
@@ -575,7 +579,9 @@ final class KeyboardViewController: UIInputViewController {
         }
         insert(text)
         lastInserted = text
+        lastUndone = nil                 // a fresh dictation invalidates redo
         undoButton.isHidden = false
+        redoButton.isHidden = true
         mode = .ready
         statusLabel.text = "Tap to talk"
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -617,7 +623,20 @@ final class KeyboardViewController: UIInputViewController {
         guard let t = lastInserted else { return }
         for _ in 0..<t.count { textDocumentProxy.deleteBackward() }
         lastInserted = nil
+        lastUndone = t                 // keep it so redo can put it back
         undoButton.isHidden = true
+        redoButton.isHidden = false
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    @objc private func redoTapped() {
+        guard let t = lastUndone else { return }
+        textDocumentProxy.insertText(t)
+        lastInserted = t               // now undoable again
+        lastUndone = nil
+        redoButton.isHidden = true
+        undoButton.isHidden = false
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
     // MARK: - Rendering
@@ -1117,7 +1136,7 @@ final class KeyboardViewController: UIInputViewController {
     private var heightConstraint: NSLayoutConstraint?
 
     private func layout() {
-        let bar = UIStackView(arrangedSubviews: [modeButton, micButton, undoButton])
+        let bar = UIStackView(arrangedSubviews: [modeButton, micButton, undoButton, redoButton])
         bar.axis = .horizontal
         bar.spacing = 6
         bar.distribution = .fill
@@ -1136,6 +1155,7 @@ final class KeyboardViewController: UIInputViewController {
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.isUserInteractionEnabled = false
         undoButton.isHidden = true
+        redoButton.isHidden = true
 
         let height = view.heightAnchor.constraint(equalToConstant: 268)
         height.priority = .required
@@ -1152,6 +1172,7 @@ final class KeyboardViewController: UIInputViewController {
             debugRow.heightAnchor.constraint(equalToConstant: 30),
             modeButton.widthAnchor.constraint(equalToConstant: 86),
             undoButton.widthAnchor.constraint(equalToConstant: 42),
+            redoButton.widthAnchor.constraint(equalToConstant: 42),
 
             statusLabel.centerYAnchor.constraint(equalTo: micButton.centerYAnchor),
             statusLabel.leadingAnchor.constraint(equalTo: micButton.leadingAnchor, constant: 40),
@@ -1196,6 +1217,8 @@ final class KeyboardViewController: UIInputViewController {
         globeButton.tintColor = palette.specialText
         undoButton.backgroundColor = palette.special
         undoButton.tintColor = palette.specialText
+        redoButton.backgroundColor = palette.special
+        redoButton.tintColor = palette.specialText
         rebuildKeys()
         render()
     }
@@ -1290,6 +1313,16 @@ final class KeyboardViewController: UIInputViewController {
         b.backgroundColor = .systemGray3
         b.layer.cornerRadius = 10
         b.addTarget(self, action: #selector(undoTapped), for: .touchUpInside)
+        return b
+    }
+
+    private func makeRedo() -> UIButton {
+        let b = UIButton(type: .custom)
+        b.setImage(UIImage(systemName: "arrow.uturn.forward"), for: .normal)
+        b.tintColor = .label
+        b.backgroundColor = .systemGray3
+        b.layer.cornerRadius = 10
+        b.addTarget(self, action: #selector(redoTapped), for: .touchUpInside)
         return b
     }
 }

@@ -379,6 +379,19 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.38 — redo button (2026-09-15)
+
+Undo already deleted the last inserted dictation. Added a redo button beside it
+(arrow.uturn.forward) that puts the undone text back. Single-level history:
+tapping undo stashes the removed text in lastUndone and swaps the undo button for
+redo; redo re-inserts it and swaps back. A fresh dictation clears the redo state
+(redoButton hidden, lastUndone nil). Undo and redo are mutually exclusive, so
+only one shows at a time.
+
+MILESTONE: 0.1.36 confirmed on device — the keyboard can now open the Dictator
+app (modern UIApplication.open via responder chain). The core "stuck / couldn't
+open" problem is solved.
+
 ### 0.1.37 — stop typing "thank you" on silence (Whisper hallucination) (2026-09-15)
 
 Device report: tap talk, say nothing, tap stop → it types "thank you". This is
