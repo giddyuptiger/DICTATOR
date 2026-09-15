@@ -379,6 +379,17 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.29 — Mac listening indicator (Wispr-style overlay) (2026-09-15)
+
+A floating "I'm listening" overlay on the Mac (macOS/ListeningIndicator.swift):
+a frosted HUD pill at bottom-centre with an animated waveform that reacts to the
+live mic level while you hold the key, a gentle travelling shimmer while it
+transcribes, and a fade-out when done. It is a non-activating panel that ignores
+the mouse and floats over all spaces/fullscreen, so it never steals focus from
+the app you are dictating into (the transcript still lands at the cursor). Wired
+through the existing DictationSession level callback (which already existed but
+was unused on Mac).
+
 ### 0.1.28 — fix red CI: OneShot must be Sendable on Xcode 27 (2026-09-15)
 
 Xcode Cloud went red (archive exit 65). Cause: Xcode Cloud updated to Xcode 27

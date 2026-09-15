@@ -100,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var hotkey: HotkeyMonitor?
     private var capturedBundleID: String?
     private var accessibilityWatch: Timer?
+    private let indicator = ListeningIndicator()
 
     var menuIcon: String {
         if isRecording { return "mic.fill" }
@@ -171,6 +172,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         )
         self.session = session
 
+        // Feed the live mic level to the floating waveform. The waveform runs its
+        // own 60fps animation and just reads this target, so per-buffer work is a
+        // single assignment.
+        await session.setOnLevel { [weak self] level in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.indicator.update(level: level) }
+            }
+        }
+
         startHotkey()
     }
 
@@ -219,6 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 try await session.start()
                 isRecording = true
                 Cue.start()
+                indicator.showListening()
                 status = "Listening…"
             } catch {
                 status = error.localizedDescription
@@ -231,6 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         Task {
             await session.cancel()
             isRecording = false
+            indicator.hide()
             status = "Ready."
         }
     }
@@ -239,12 +251,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         guard isRecording, let session else { return }
         isRecording = false
         Cue.stop()
+        indicator.showTranscribing()
         status = "Transcribing…"
         let bundleID = capturedBundleID
 
         Task {
             let profile = ToneProfile.forBundleID(bundleID)
             guard let out = await session.finish(profile: profile) else {
+                indicator.hide()
                 status = "Ready."
                 return
             }
@@ -252,6 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             inserter.insert(out.text)
             lastTiming = String(format: "%.0f ms transcribe · %.0f ms cleanup",
                                 out.transcribeTime * 1000, out.cleanupTime * 1000)
+            indicator.hide()
             status = "Ready."
         }
     }
