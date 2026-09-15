@@ -118,6 +118,29 @@ final class KeyboardViewController: UIInputViewController {
         resolvedDark ? Self.darkPalette : Self.lightPalette
     }
 
+    // MARK: - Pill highlights
+
+    /// The mic pill's state colours. Soft pastel grounds with a deep, same-hue
+    /// ink for the icon and label, instead of the old saturated "neon" system
+    /// colours — softer on the eye while staying clearly legible and distinct by
+    /// hue. The pill keeps its shadow, so a pale pastel still lifts off the board.
+    private struct PillStyle { let bg: UIColor; let ink: UIColor }
+
+    private static func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> UIColor {
+        UIColor(red: r/255, green: g/255, blue: b/255, alpha: 1)
+    }
+
+    private static let pillBlue   = PillStyle(bg: rgb(169, 198, 240), ink: rgb(34,  64, 111)) // ready / wake
+    private static let pillRed    = PillStyle(bg: rgb(242, 183, 179), ink: rgb(138, 44,  38)) // recording / retry
+    private static let pillIndigo = PillStyle(bg: rgb(198, 193, 236), ink: rgb(58,  51, 112)) // busy
+    private static let pillAmber  = PillStyle(bg: rgb(243, 211, 155), ink: rgb(110, 78,  18)) // needs setup
+
+    private func applyPill(_ s: PillStyle) {
+        micButton.backgroundColor = s.bg
+        micButton.configuration?.baseForegroundColor = s.ink
+        statusLabel.textColor = s.ink
+    }
+
     // MARK: - Lifecycle
 
     override func loadView() {
@@ -519,42 +542,36 @@ final class KeyboardViewController: UIInputViewController {
     private func render() {
         modeButton.setTitle(DictationMode.current.displayName, for: .normal)
 
+        micButton.isEnabled = true
+        micButton.alpha = 1
+
         switch mode {
         case .needsFullAccess:
-            micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemOrange   // needs attention, not a muddy grey
+            applyPill(Self.pillAmber)
             statusLabel.text = "Turn on Full Access for Dictator"
         case .needsKey:
-            micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemOrange
+            applyPill(Self.pillAmber)
             statusLabel.text = "Add your Groq key in Dictator"
         case .needsSession:
-            micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemBlue
+            applyPill(Self.pillBlue)
             statusLabel.text = wakeMessage ?? "Tap to wake Dictator"
         case .waking:
-            micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemIndigo
+            applyPill(Self.pillIndigo)
             statusLabel.text = "Waking Dictator…"
         case .ready:
-            micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemBlue
+            applyPill(Self.pillBlue)
             statusLabel.text = "Tap to talk"
         case .starting:
-            micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemIndigo
+            applyPill(Self.pillIndigo)
             statusLabel.text = "Starting"
         case .recording:
-            micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemRed
+            applyPill(Self.pillRed)
             statusLabel.text = "Listening. Tap to stop."
         case .working:
-            micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemIndigo   // busy; distinct from the grey board
+            applyPill(Self.pillIndigo)
             statusLabel.text = "Transcribing"
         case .retryError:
-            micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemRed
+            applyPill(Self.pillRed)
             statusLabel.text = retryMessage ?? "Tap to try again"
         }
     }

@@ -130,7 +130,7 @@ struct ContentView: View {
             }
             if recorder.state == .capturing {
                 ProgressView(value: Double(min(recorder.level * 6, 1)))
-                    .tint(.red)
+                    .tint(Self.pastelRed)
             }
             Text(statusDetail)
                 .font(.caption)
@@ -143,13 +143,19 @@ struct ContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
+    // Soft, muted accents instead of the saturated system colours, to match the
+    // keyboard's pastel pills. Still saturated enough to read as a 12pt status dot.
+    static let pastelGreen = Color(red: 0.36, green: 0.66, blue: 0.45) // sage
+    static let pastelRed   = Color(red: 0.85, green: 0.47, blue: 0.44) // soft rose
+    static let pastelAmber = Color(red: 0.87, green: 0.66, blue: 0.36) // soft amber
+
     private var dotColor: Color {
         switch recorder.state {
         case .cold: return .gray
-        case .warm: return .green
-        case .capturing: return .red
-        case .transcribing: return .orange
-        case .failed: return .red
+        case .warm: return Self.pastelGreen
+        case .capturing: return Self.pastelRed
+        case .transcribing: return Self.pastelAmber
+        case .failed: return Self.pastelRed
         }
     }
 
@@ -313,7 +319,7 @@ struct ContentView: View {
         } label: {
             HStack {
                 Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(done ? .green : .secondary)
+                    .foregroundStyle(done ? Self.pastelGreen : .secondary)
                 Text(title).foregroundStyle(.primary)
                 Spacer()
                 if !done {

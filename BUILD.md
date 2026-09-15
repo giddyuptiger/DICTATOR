@@ -340,6 +340,17 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.18 — pastel highlights instead of neon (2026-09-15)
+
+Cosmetic pass. The saturated system colours (neon blue/red/indigo/orange) read
+as harsh. The mic pill now uses soft pastel grounds with a deep, same-hue ink
+for its icon and label (blue ready/wake, rose recording, lavender busy, amber
+needs-setup) — softer while staying legible and distinct by hue, and the pill
+keeps its shadow so a pale pastel still lifts off the board. The app's status dot,
+capture level bar, and setup checkmarks use the matching muted sage/rose/amber.
+The keyboard still follows the system/host appearance (per Jeremy: always follow
+system); the native Turn on/off and mode controls keep the platform's own accents.
+
 ### 0.1.17 — cleanup never destroys the words (refusal/empty fallback) (2026-09-15)
 
 The real cause of "it fails badly on longer texts", from device logs: the mic,
