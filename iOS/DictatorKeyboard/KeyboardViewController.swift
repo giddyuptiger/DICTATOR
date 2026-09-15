@@ -3,6 +3,24 @@ import UIKit
 // Note: DictationCore is compiled directly into this target as source
 // (see project.yml), not linked as a module, so there is nothing to import.
 
+/// A key that keeps its drop shadow cheap.
+///
+/// A CALayer shadow with no `shadowPath` is computed by rendering the layer
+/// offscreen every time the key redraws — and with ~30 keys, each press (which
+/// changes a key's background) and every relayout paid that cost, which is the
+/// main source of typing jank. Setting an explicit `shadowPath` (updated when the
+/// bounds change) turns the shadow into a cheap pre-rasterized rectangle.
+final class KeyButton: UIButton {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard layer.shadowOpacity > 0 else { return }
+        layer.shadowPath = UIBezierPath(
+            roundedRect: bounds,
+            cornerRadius: layer.cornerRadius
+        ).cgPath
+    }
+}
+
 /// The Dictator keyboard.
 ///
 /// This extension NEVER touches the microphone. It cannot: Apple has forbidden
@@ -22,7 +40,7 @@ import UIKit
 /// time we bounce is a cold start, when nothing answers the ping.
 final class KeyboardViewController: UIInputViewController {
 
-    private enum Mode {
+    private enum Mode: Equatable {
         case needsFullAccess
         case needsKey
         case needsSession      // app not running: cold start required
@@ -35,7 +53,10 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var mode: Mode = .ready {
-        didSet { render() }
+        // Render only on a real change. The 1 s modeWatch reassigns `mode` every
+        // tick (usually to the same value); re-rendering the pill each second was
+        // needless main-thread work while the user was typing.
+        didSet { if mode != oldValue { render() } }
     }
 
     private var lastSeenToken: String?
@@ -188,8 +209,7 @@ final class KeyboardViewController: UIInputViewController {
                 case .working, .starting, .retryError, .waking:
                     return          // mid-flight or showing an error, leave it alone
                 default:
-                    self.refreshMode()
-                    self.render()   // refresh the diagnostic text in place
+                    self.refreshMode()   // renders only if the mode actually changed
                 }
             }
         }
@@ -790,7 +810,10 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func makeKey(_ title: String) -> UIButton {
-        let b = UIButton(type: .custom)
+        // KeyButton (not UIButton(type:)) so the shadow gets a shadowPath and does
+        // not force an offscreen render on every press/relayout. Frame init keeps
+        // the .custom button behaviour.
+        let b = KeyButton(frame: .zero)
         b.setTitle(title, for: .normal)
         b.titleLabel?.font = .systemFont(ofSize: 22, weight: .regular)
         b.setTitleColor(palette.keyText, for: .normal)

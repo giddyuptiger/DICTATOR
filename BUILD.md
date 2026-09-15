@@ -379,6 +379,18 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.27 — keyboard typing latency (2026-09-15)
+
+The custom keyboard felt laggy to type on. Two main-thread costs removed:
+- Every letter key had a CALayer drop shadow with no shadowPath, so Core
+  Animation rendered each of ~30 keys offscreen on every press and relayout. A
+  KeyButton subclass now sets a shadowPath in layoutSubviews, turning the shadow
+  into a cheap pre-rasterized rectangle.
+- `mode`'s didSet re-rendered the pill on every assignment, and the 1 s modeWatch
+  reassigns mode each tick — so the pill re-rendered once a second while typing.
+  Now it renders only on an actual mode change, and the timer's redundant explicit
+  render() is gone.
+
 ### 0.1.26 — Mac reliability: no more wedge after a few dictations (2026-09-15)
 
 The "works for a few dictations then stuck on Listening, no result" bug on Mac,
