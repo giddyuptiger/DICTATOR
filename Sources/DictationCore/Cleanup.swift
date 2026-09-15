@@ -77,21 +77,63 @@ public struct Cleaner: Sendable {
 public struct GroqCleanup: CleanupProvider {
 
     private let apiKey: String
-    private let model: String
+    private let models: [String]
     private let session: URLSession
 
-    public init(apiKey: String, model: String = "llama-3.3-70b-versatile") {
+    /// Groq rotates and decommissions models, and it did: on 2026-09-14 the
+    /// hard-coded `llama-3.3-70b-versatile` started returning "does not exist",
+    /// so every cleanup failed and modes/emoji silently did nothing. So try a
+    /// spread across families and cache the first that works; if Groq kills one,
+    /// the next covers it. Ordered fast-and-cheap first, which is plenty for a
+    /// rewrite-this-text task.
+    public static let defaultModels = [
+        "llama-3.1-8b-instant",
+        "openai/gpt-oss-20b",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "gemma2-9b-it",
+        "moonshotai/kimi-k2-instruct",
+        "openai/gpt-oss-120b",
+        "llama-3.3-70b-versatile"
+    ]
+
+    public init(apiKey: String, models: [String] = GroqCleanup.defaultModels) {
         self.apiKey = apiKey
-        self.model = model
+        self.models = models
         let config = URLSessionConfiguration.ephemeral
-        // 8s was too tight: a 70B model on a longer message can run past it, the
-        // request times out, and cleanup silently degrades to raw (no mode, no
-        // emoji). 15s keeps the whole pipeline under the transcription timeout.
+        // 8s was too tight: a bigger model on a longer message can run past it,
+        // the request times out, and cleanup silently degrades to raw (no mode,
+        // no emoji). 15s keeps the whole pipeline under the transcription timeout.
         config.timeoutIntervalForRequest = 15
         self.session = URLSession(configuration: config)
     }
 
     public func clean(_ raw: String, system: String) async throws -> String {
+        // Try the last-known-good model first, then the rest. A model that is
+        // gone (HTTP 4xx naming the model) means try the next; any other failure
+        // (network, auth) is not helped by trying more models, so surface it.
+        var order = models
+        if let cached = SharedStore.cleanupModel, let i = order.firstIndex(of: cached) {
+            order.remove(at: i)
+            order.insert(cached, at: 0)
+        }
+
+        var lastModelError: Error = CleanupError.unparseable
+        for model in order {
+            do {
+                let text = try await request(model: model, raw: raw, system: system)
+                SharedStore.cleanupModel = model   // remember the winner
+                return text
+            } catch CleanupError.modelUnavailable {
+                lastModelError = CleanupError.modelUnavailable
+                continue
+            }
+            // Any other thrown error (network, 401, parse) propagates: retrying
+            // other models would not fix it and just burns time.
+        }
+        throw lastModelError
+    }
+
+    private func request(model: String, raw: String, system: String) async throws -> String {
         var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/chat/completions")!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -109,8 +151,15 @@ public struct GroqCleanup: CleanupProvider {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw CleanupError.badResponse(String(data: data, encoding: .utf8) ?? "")
+        guard let http = response as? HTTPURLResponse else { throw CleanupError.unparseable }
+        guard (200..<300).contains(http.statusCode) else {
+            let bodyText = String(data: data, encoding: .utf8) ?? ""
+            // A 4xx that names the model (decommissioned / no access) means: try
+            // another model. Everything else is a real error to surface.
+            if (400..<500).contains(http.statusCode), bodyText.contains("model") {
+                throw CleanupError.modelUnavailable
+            }
+            throw CleanupError.badResponse(bodyText)
         }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -127,6 +176,7 @@ public struct GroqCleanup: CleanupProvider {
     public enum CleanupError: Error {
         case badResponse(String)
         case unparseable
+        case modelUnavailable
     }
 }
 

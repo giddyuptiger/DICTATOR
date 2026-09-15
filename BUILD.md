@@ -340,6 +340,35 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.13 — clean audio (two engines) + resilient cleanup model (2026-09-15)
+
+Two bugs from the 0.1.12 device logs, both of which made dictation look
+"completely broken": full sentences came back as fragments ("Bye. you You")
+and modes/emoji never applied.
+
+1. **The silent keep-alive was corrupting the mic.** 0.1.11 restored the silent
+   player for background residency, but ran it through the *same* AVAudioEngine
+   as the input tap. That makes the engine full-duplex, which quietly guts the
+   capture: it recorded ~9 s and Whisper heard "Bye." Fix: split into two
+   engines. `inputEngine` is now pure input (no player, no output connection) so
+   the mic stays clean; a separate `silenceEngine` + `AVAudioPlayerNode` carries
+   the silent keep-alive for residency, started best-effort during warm-up. The
+   warm-up log now reports keep-alive state ("mic live, keep-alive on" vs
+   "keep-alive OFF (residency at risk)") so the Activity log shows whether
+   residency is protected.
+2. **The Groq cleanup model was decommissioned.** `llama-3.3-70b-versatile`
+   started returning "does not exist", so every cleanup call failed and degraded
+   to raw — no mode, no emoji, silently. Fix: `GroqCleanup` now carries a spread
+   of models across families, tries the last-known-good first (cached in the App
+   Group as `cleanupModel`), and on a 4xx that names the model falls through to
+   the next instead of failing. `CleanupResult.note` records why a pass degraded
+   so "my mode/emoji did nothing" is answerable from the log.
+
+**Reasoned and brace-checked; not yet watched on device.** To confirm: dictate a
+full sentence and check it transcribes whole (not a fragment); toggle a mode or
+emoji and check it applies; run several dictations in a row and check the app
+survives.
+
 ### 0.1.5 — mic-start fix and the interface pass (2026-09-14)
 
 The keyboard-triggered capture that failed on build 1.0 (2) with kAUStartIO

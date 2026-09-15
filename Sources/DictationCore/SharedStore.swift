@@ -138,4 +138,11 @@ public enum SharedStore {
         get { defaults?.string(forKey: Key.groqKey) }
         set { defaults?.set(newValue, forKey: Key.groqKey) }
     }
+
+    /// The last Groq cleanup model that worked, so we skip re-probing dead ones
+    /// every time (Groq rotates models). Set by GroqCleanup on a successful call.
+    public static var cleanupModel: String? {
+        get { defaults?.string(forKey: "cleanupModel") }
+        set { defaults?.set(newValue, forKey: "cleanupModel") }
+    }
 }
