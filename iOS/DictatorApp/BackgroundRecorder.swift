@@ -141,9 +141,30 @@ final class AudioEngineHost: @unchecked Sendable {
         }
         running = true
 
-        // Silent keep-alive on its own engine, for background residency. Best
-        // effort: if it will not start (two concurrent engines can be refused),
-        // the mic still works cleanly and the app just risks suspension sooner.
+        // Silent keep-alive on its own engine, for background residency. This is
+        // THE thing that keeps the backgrounded app resident so the keyboard can
+        // reach it, so it is worth a retry: two concurrent engines can lose a
+        // start race. If it still will not start, the mic works cleanly and the
+        // app just risks being suspended (and then "Couldn't open Dictator")
+        // sooner.
+        do { try startSilence() }
+        catch {
+            silenceRunning = false
+            do { try startSilence() } catch { silenceRunning = false }
+        }
+    }
+
+    /// (Re)start ONLY the silent keep-alive. Safe to call from the BACKGROUND:
+    /// starting playback from the background is allowed (only starting mic INPUT
+    /// is refused). This regains residency after an interruption or a media reset
+    /// stopped the player while we were backgrounded, WITHOUT touching the mic
+    /// (which cannot restart until the app is foregrounded again). Losing the
+    /// keep-alive is exactly what lets iOS suspend the app, after which the
+    /// keyboard can no longer wake it — so keeping this playing is the whole game.
+    func ensureSilenceAlive() {
+        guard running else { return }                 // no session to keep alive
+        if silenceEngine.isRunning, silence.isPlaying { return }
+        silenceRunning = false                        // clear any stale flag
         do { try startSilence() } catch { silenceRunning = false }
     }
 
@@ -558,6 +579,11 @@ public final class BackgroundRecorder: ObservableObject {
                       let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
                 if type == .ended {
                     self.log("audio interruption ended; rebuilding")
+                    // Regain residency immediately — playback can restart from the
+                    // background, so this works even when we are not foregrounded.
+                    self.audio.ensureSilenceAlive()
+                    // The mic can only restart in the foreground; do the full
+                    // rebuild there.
                     if self.isForeground { Task { await self.resync() } }
                 } else {
                     self.log("audio interrupted")
@@ -569,6 +595,7 @@ public final class BackgroundRecorder: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.log("media services reset; rebuilding")
+                self.audio.ensureSilenceAlive()   // best-effort residency from bg
                 if self.isForeground { Task { await self.resync() } }
             }
         }

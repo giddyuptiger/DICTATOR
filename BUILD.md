@@ -379,6 +379,26 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.35 — harden background residency (the "Couldn't open Dictator" root) (2026-09-15)
+
+Device report: after granting Full Access, the keyboard ended on "Couldn't open
+Dictator. Open it from your Home Screen." That is HONEST and correct — a keyboard
+extension genuinely cannot launch its container app on iOS. The real problem is
+the app not staying resident in the background; when it is not resident there is
+nothing for the keyboard to wake.
+
+Residency is kept by playing silent audio (audio background mode). Hardened it:
+- startWarm now retries the silent keep-alive once if the first start loses a
+  race (it was best-effort/one-shot before).
+- New ensureSilenceAlive() restarts ONLY the keep-alive, and it is called from
+  the interruption-ended and media-services-reset handlers even when
+  BACKGROUNDED — because starting playback from the background is allowed (only
+  starting mic INPUT is refused). So an interruption no longer silently ends
+  residency until the next foreground.
+
+Still to confirm with a device log (Details → Report a problem) whether the app
+is being SUSPENDED (residency, this fix) or CRASHING (needs the log to pin down).
+
 ### 0.1.34 — stop the "Turn on Full Access" pill from flapping (2026-09-15)
 
 Device report: the pill sat on "Turn on Full Access for Dictator", and tapping
