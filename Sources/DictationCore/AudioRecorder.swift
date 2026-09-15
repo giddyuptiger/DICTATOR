@@ -50,7 +50,7 @@ public final class AudioRecorder: @unchecked Sendable {
     /// Target format for the ASR models.
     public static let targetSampleRate: Double = 16_000
 
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private var converter: AVAudioConverter?
     private let targetFormat: AVAudioFormat
     private var isRunning = false
@@ -102,6 +102,14 @@ public final class AudioRecorder: @unchecked Sendable {
         guard !isRunning else { return }
 
         self.onBuffer = onBuffer
+
+        // Fresh engine every session. Reusing one AVAudioEngine across many
+        // start/stop cycles wedges after a device or sample-rate change: it stops
+        // delivering buffers, so the app looks like it is "listening" but captures
+        // nothing (and only relaunching fixed it). A new instance each time avoids
+        // that entire failure mode; the old one was already stopped in stop().
+        engine.stop()
+        engine = AVAudioEngine()
 
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()

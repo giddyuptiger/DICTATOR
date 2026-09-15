@@ -340,6 +340,19 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.26 — Mac reliability: no more wedge after a few dictations (2026-09-15)
+
+The "works for a few dictations then stuck on Listening, no result" bug on Mac,
+two causes both fixed:
+- DictationSession left state at .failed after any transcription error, and
+  start() only ran from .idle — so ONE hiccup wedged the session permanently
+  (every later dictation silently no-oped while the UI said "Listening"). Now a
+  transcription error returns to .idle, and start() self-heals from any non-
+  listening state (stops the recorder, resets, starts fresh).
+- AudioRecorder reused one AVAudioEngine across every start/stop cycle, which
+  wedges after a device/sample-rate change and stops delivering buffers. It now
+  builds a fresh AVAudioEngine each session.
+
 ### 0.1.25 — spoken punctuation, with reference disambiguation (2026-09-15)
 
 The cleanup prompt now handles spoken punctuation as commands — "period",

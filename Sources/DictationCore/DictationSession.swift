@@ -64,7 +64,14 @@ public actor DictationSession {
     // MARK: - Recording
 
     public func start() async throws {
-        guard state == .idle else { return }
+        // Self-heal from any wedged state. A prior transcription error used to
+        // leave state at .failed, and .transcribing can linger if a call hung —
+        // and because start() only ran from .idle, one hiccup wedged the whole
+        // session forever (every later dictation silently no-oped while the UI
+        // still said "Listening"). Only a genuine in-progress capture should block
+        // a new start; anything else resets so the next dictation always works.
+        if state == .listening { return }
+        recorder.stop()                       // defensive; no-op if not running
         buffer.removeAll(keepingCapacity: true)
 
         try recorder.start { [weak self] samples in
@@ -101,7 +108,10 @@ public actor DictationSession {
         do {
             raw = try await speech.transcribe(samples: samples)
         } catch {
-            setState(.failed(error.localizedDescription))
+            // Return to .idle, NOT .failed: a failed state used to wedge the
+            // session so no further dictation could start. The error surfaces to
+            // the caller as a nil result; the session stays usable.
+            setState(.idle)
             return nil
         }
         let transcribeTime = Date().timeIntervalSince(t0)
