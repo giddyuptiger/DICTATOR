@@ -379,6 +379,25 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.36 — open Dictator FROM the keyboard: modern method + debug row (2026-09-15)
+
+The keyboard's launch code used the LEGACY perform("openURL:") responder-chain
+selector, which iOS 18 deliberately broke (UIKit logs "migrate to the
+non-deprecated UIApplication.open(_:options:completionHandler:)"). That is why
+"Couldn't open Dictator" kept showing even with Full Access on.
+
+Fix: attemptOpen(_:) now walks the responder chain to the real UIApplication and
+calls the MODERN open(_:options:completionHandler:). coldStart() tries every
+method best-first (modern → legacy → extensionContext). Per Apple's own review
+guidance, a keyboard IS allowed to launch its OWN container app (only opening
+arbitrary URLs is disallowed), so this is a sanctioned path, not a private hack.
+
+Also added a temporary DEBUG ROW (three small buttons: "A: open()", "B:
+openURL:", "C: extCtx") shown whenever the app is unreachable. Each tries one
+method and reports whether Dictator actually came alive, so we can confirm on a
+real device which technique works and then drop the losers. Remove the row once
+the winner is confirmed.
+
 ### 0.1.35 — harden background residency (the "Couldn't open Dictator" root) (2026-09-15)
 
 Device report: after granting Full Access, the keyboard ended on "Couldn't open

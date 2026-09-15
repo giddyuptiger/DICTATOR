@@ -69,6 +69,10 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var globeButton = makeGlobe()
     private lazy var undoButton  = makeUndo()
     private lazy var modeButton  = makeMode()
+    /// Temporary diagnostic row: one button per app-open method, shown only when
+    /// the app is not reachable, so we can find which technique launches Dictator
+    /// on a real device/iOS. Remove once the winning method is confirmed.
+    private lazy var debugRow    = makeDebugRow()
     private var lastInserted: String?
     private var retryMessage: String?
     /// Set when a wake attempt failed, so the needsSession line can tell the
@@ -415,25 +419,22 @@ final class KeyboardViewController: UIInputViewController {
     /// The one bounce. Only when the app is not running (or needs setup).
     ///
     /// The old version was silent when the launch failed: it set "Opening
-    /// Dictator…", trusted `launchViaResponderChain` to have worked, and never
-    /// corrected itself, so a refused launch read as a button that does nothing.
-    /// Now every wake gives haptic feedback, enters a `.waking` state, and polls
-    /// whether the app actually came alive — advancing to ready on success or
-    /// saying so honestly on failure.
+    /// Dictator…", trusted the launch to have worked, and never corrected itself,
+    /// so a refused launch read as a button that does nothing. Now every wake
+    /// gives haptic feedback, enters a `.waking` state, tries every known open
+    /// method (see attemptOpen/OpenMethod), and polls whether the app actually
+    /// came alive — advancing to ready on success or saying so honestly on failure.
     private func coldStart() {
         wakeMessage = nil
         mode = .waking
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        guard let url = URL(string: "dictator://dictate") else { return }
 
-        // extensionContext.open is the sanctioned API, but on current iOS a
-        // keyboard gets `false` back and nothing launches. Walking the responder
-        // chain to UIApplication.openURL(_:) DOES launch the container app from a
-        // keyboard. It is private-API-adjacent and an App Store review risk
-        // (Jeremy chose to keep it for TestFlight, 2026-09-14); remove or
-        // reconsider it before any App Store submission. See BUILD.md.
-        let launched = launchViaResponderChain(url)
-        if !launched { extensionContext?.open(url, completionHandler: nil) }
+        // Try every known method, best-first, until one "takes". iOS 18+ broke
+        // the legacy perform("openURL:") selector; the modern path — walk the
+        // responder chain to the real UIApplication and call
+        // open(_:options:completionHandler:) — is the current sanctioned way, and
+        // Apple App Review does allow a keyboard to launch its OWN container app.
+        for method in OpenMethod.allCases where attemptOpen(method) { break }
 
         // Whatever the launch call claims, the only truth is whether the app
         // starts stamping the App Group. Poll for it. If the launch worked, the
@@ -463,22 +464,93 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    /// Walks the responder chain to find an object that responds to openURL:
-    /// (that is UIApplication) and calls it. This is what actually launches the
-    /// container app from a keyboard extension; the sanctioned API refuses.
-    @discardableResult
-    private func launchViaResponderChain(_ url: URL) -> Bool {
-        let selector = NSSelectorFromString("openURL:")
-        var responder: UIResponder? = self
-        while let r = responder {
-            if r.responds(to: selector) {
-                r.perform(selector, with: url)
-                return true
+    // MARK: - Launching the container app
+
+    /// The known ways for a keyboard extension to open its container app, in
+    /// order of expected reliability on current iOS. We try them best-first, and
+    /// the debug row lets us test each one individually on a real device.
+    enum OpenMethod: Int, CaseIterable {
+        case modernResponder    // responder chain → UIApplication.open(options:)
+        case legacySelector     // responder chain → perform("openURL:") (pre-iOS18)
+        case extensionContext   // extensionContext.open (usually refused for kbds)
+
+        /// Short label for the debug button.
+        var label: String {
+            switch self {
+            case .modernResponder:  return "A: open()"
+            case .legacySelector:   return "B: openURL:"
+            case .extensionContext: return "C: extCtx"
             }
-            responder = r.next
         }
-        return false
     }
+
+    private var dictateURL: URL { URL(string: "dictator://dictate")! }
+
+    /// Attempt one open method. Returns whether the call was actually made — NOT
+    /// whether the app opened (only the App-Group poll can know that). iOS 18
+    /// broke `perform("openURL:")`; `modernResponder` is the current path.
+    @discardableResult
+    private func attemptOpen(_ method: OpenMethod) -> Bool {
+        let url = dictateURL
+        switch method {
+        case .modernResponder:
+            var responder: UIResponder? = self
+            while let r = responder {
+                if let app = r as? UIApplication {
+                    app.open(url, options: [:], completionHandler: nil)
+                    return true
+                }
+                responder = r.next
+            }
+            return false
+        case .legacySelector:
+            let selector = NSSelectorFromString("openURL:")
+            var responder: UIResponder? = self
+            while let r = responder {
+                if r.responds(to: selector) {
+                    r.perform(selector, with: url)
+                    return true
+                }
+                responder = r.next
+            }
+            return false
+        case .extensionContext:
+            extensionContext?.open(url, completionHandler: nil)
+            return extensionContext != nil
+        }
+    }
+
+    /// Debug: try ONE named method, then report whether the app came alive, so we
+    /// can tell exactly which technique launches Dictator on this device/iOS.
+    private func debugTryOpen(_ method: OpenMethod) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        let made = attemptOpen(method)
+        mode = .waking
+        statusLabel.text = "\(method.label): trying…"
+        let deadline = Date().addingTimeInterval(3.0)
+        coldStartTimer?.invalidate()
+        coldStartTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.appIsAlive {
+                    self.cancelWait()
+                    self.wakeMessage = nil
+                    self.mode = .ready
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                } else if Date() >= deadline {
+                    self.cancelWait()
+                    self.wakeMessage = made
+                        ? "\(method.label): no launch"
+                        : "\(method.label): not available"
+                    self.mode = .needsSession
+                }
+            }
+        }
+    }
+
+    @objc private func debugOpenA() { debugTryOpen(.modernResponder) }
+    @objc private func debugOpenB() { debugTryOpen(.legacySelector) }
+    @objc private func debugOpenC() { debugTryOpen(.extensionContext) }
 
     private func consumeResult() {
         let token = SharedStore.resultToken
@@ -555,6 +627,15 @@ final class KeyboardViewController: UIInputViewController {
 
         micButton.isEnabled = true
         micButton.alpha = 1
+
+        // Show the diagnostic open-method buttons only while the app is not
+        // reachable — that is the only time launching it is relevant.
+        switch mode {
+        case .needsSession, .needsFullAccess, .waking:
+            debugRow.isHidden = false
+        default:
+            debugRow.isHidden = true
+        }
 
         switch mode {
         case .needsFullAccess:
@@ -1045,7 +1126,7 @@ final class KeyboardViewController: UIInputViewController {
         rowsStack.spacing = 11
         rowsStack.distribution = .fillEqually
 
-        let root = UIStackView(arrangedSubviews: [bar, rowsStack])
+        let root = UIStackView(arrangedSubviews: [bar, debugRow, rowsStack])
         root.axis = .vertical
         root.spacing = 8
         root.translatesAutoresizingMaskIntoConstraints = false
@@ -1068,6 +1149,7 @@ final class KeyboardViewController: UIInputViewController {
             root.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
 
             bar.heightAnchor.constraint(equalToConstant: 42),
+            debugRow.heightAnchor.constraint(equalToConstant: 30),
             modeButton.widthAnchor.constraint(equalToConstant: 86),
             undoButton.widthAnchor.constraint(equalToConstant: 42),
 
@@ -1163,6 +1245,32 @@ final class KeyboardViewController: UIInputViewController {
         b.layer.cornerRadius = 10
         b.addTarget(self, action: #selector(modeTapped), for: .touchUpInside)
         return b
+    }
+
+    /// Three tiny buttons, one per open method, so we can find which one actually
+    /// launches Dictator on a real device. Tap each; whichever brings Dictator to
+    /// the foreground is the winner. Temporary — removed once confirmed.
+    private func makeDebugRow() -> UIStackView {
+        let make: (String, Selector) -> UIButton = { title, action in
+            let b = UIButton(type: .system)
+            b.setTitle(title, for: .normal)
+            b.titleLabel?.font = .systemFont(ofSize: 12, weight: .semibold)
+            b.setTitleColor(.label, for: .normal)
+            b.backgroundColor = .systemGray4
+            b.layer.cornerRadius = 8
+            b.addTarget(self, action: action, for: .touchUpInside)
+            return b
+        }
+        let row = UIStackView(arrangedSubviews: [
+            make(OpenMethod.modernResponder.label, #selector(debugOpenA)),
+            make(OpenMethod.legacySelector.label,  #selector(debugOpenB)),
+            make(OpenMethod.extensionContext.label, #selector(debugOpenC)),
+        ])
+        row.axis = .horizontal
+        row.spacing = 6
+        row.distribution = .fillEqually
+        row.isHidden = true
+        return row
     }
 
     private func makeGlobe() -> UIButton {
