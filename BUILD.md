@@ -379,6 +379,16 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.28 — fix red CI: OneShot must be Sendable on Xcode 27 (2026-09-15)
+
+Xcode Cloud went red (archive exit 65). Cause: Xcode Cloud updated to Xcode 27
+beta, and under Swift 6 mode there the "capture of non-Sendable OneShot in a
+@Sendable closure" (the AVAudioConverter input block) is a hard error, not the
+warning it was on the older toolchain — so the iOS archive stopped compiling.
+Marked both OneShot classes (AudioRecorder.swift and BackgroundRecorder.swift)
+`@unchecked Sendable`; it is accurate (each is created and consumed within one
+synchronous convert() call on a single thread, never shared).
+
 ### 0.1.27 — keyboard typing latency (2026-09-15)
 
 The custom keyboard felt laggy to type on. Two main-thread costs removed:

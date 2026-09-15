@@ -22,7 +22,12 @@ import Foundation
 /// AVAudioConverter's input block can be invoked more than once per convert()
 /// call. A captured `var` flag is a data race; this makes the one-shot contract
 /// explicit and gives the closure a reference instead of a copy.
-private final class OneShot {
+///
+/// @unchecked Sendable: a OneShot is created and consumed entirely within one
+/// synchronous convert() call on a single thread, never shared. The annotation
+/// lets it be captured in the @Sendable converter block without a data-race
+/// error under Swift 6 on Xcode 27 (which broke the CI archive).
+private final class OneShot: @unchecked Sendable {
     private var used = false
     func take() -> Bool {
         if used { return false }
