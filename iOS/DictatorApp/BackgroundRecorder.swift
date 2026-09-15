@@ -165,6 +165,17 @@ final class AudioEngineHost: @unchecked Sendable {
             throw StartError.badFormat
         }
         quiet.frameLength = frames
+        // CRITICAL: a freshly allocated AVAudioPCMBuffer holds UNINITIALISED
+        // memory. Looping it as-is plays garbage through the speaker — the pops
+        // and cracks — and that noise bleeds into the microphone, so a dictation
+        // is captured over noise and Whisper returns "thank you". Zero every
+        // channel so the keep-alive is genuinely silent.
+        if let channels = quiet.floatChannelData {
+            let bytes = Int(quiet.frameCapacity) * MemoryLayout<Float>.size
+            for ch in 0..<Int(outFormat.channelCount) {
+                memset(channels[ch], 0, bytes)
+            }
+        }
         silence.scheduleBuffer(quiet, at: nil, options: .loops)
         silence.play()
         silenceRunning = true
@@ -481,12 +492,22 @@ public final class BackgroundRecorder: ObservableObject {
     /// the engine was actually alive. Now the app calls this on every foreground:
     /// if we are nominally warm but the engine is not running, tear down fully and
     /// warm again from scratch.
+    private var lastRebuildAt: Date?
+
     public func resync() async {
         guard !isWarming else { return }           // a warm-up is already running
         switch state {
         case .warm:
             if audio.isRunning { return }          // genuinely alive, nothing to do
+            // Cooldown: never rebuild more than once every few seconds. This is a
+            // hard stop against a feedback loop — a rebuild that itself briefly
+            // reports "not running", or an event that fires repeatedly, must not
+            // be able to churn the engine (which pops the speaker and wrecks
+            // capture). If it is still dead after the cooldown, the next trigger
+            // handles it.
+            if let last = lastRebuildAt, Date().timeIntervalSince(last) < 8 { return }
             log("resync: engine died while away; rebuilding")
+            lastRebuildAt = Date()
             teardownForRewarm()
             state = .cold
         case .failed:
@@ -512,12 +533,14 @@ public final class BackgroundRecorder: ObservableObject {
         audio.stopEverything()
     }
 
-    /// One-time observers for the events that stop the audio engine, so it is
-    /// rebuilt as soon as it dies instead of only on the next foreground. iOS does
-    /// not always deliver these (a silent background suspension gives no notice —
-    /// the heartbeat health check and the foreground resync cover that), but the
-    /// common causes (a phone call or other audio interrupting us, a route/format
-    /// change, a mediaserverd reset) do fire here.
+    /// One-time observers for the two events that stop the engine and DO NOT
+    /// re-fire as a result of our own rebuild: an audio-session interruption
+    /// ending (a phone call finishing), and a mediaserverd reset. Both are safe to
+    /// react to. We deliberately do NOT observe AVAudioEngineConfigurationChange —
+    /// rebuilding the engine itself posts that notification, so reacting to it
+    /// creates a rebuild loop that churns the audio session (speaker pops, wrecked
+    /// capture). Silent deaths are caught on the next foreground by `resync`,
+    /// which is also rate-limited as a backstop.
     private func observeAudioLifecycle() {
         guard !lifecycleObserved else { return }
         lifecycleObserved = true
@@ -534,14 +557,6 @@ public final class BackgroundRecorder: ObservableObject {
                 } else {
                     self.log("audio interrupted")
                 }
-            }
-        }
-
-        nc.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.log("engine config changed; rebuilding")
-                if self.isForeground { Task { await self.resync() } }
             }
         }
 
@@ -609,10 +624,9 @@ public final class BackgroundRecorder: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.state != .cold else { return }
                 // Health check: if we think we are warm but the engine has died,
-                // rebuild (only while foregrounded — a background rebuild can't
-                // start the mic and would just fail). This catches a silent death
-                // that fires no interruption notice, e.g. "just wait a while and it
-                // stops working" without ever leaving the app.
+                // rebuild — but only while foregrounded, and `resync` is rate-
+                // limited so a flapping engine can never turn this 2 s tick into a
+                // rebuild loop (which pops the speaker and wrecks capture).
                 if self.state == .warm, !self.audio.isRunning, self.isForeground {
                     self.log("heartbeat: engine not running; rebuilding")
                     Task { await self.resync() }

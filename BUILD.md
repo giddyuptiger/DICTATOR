@@ -340,6 +340,25 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.24 — fix speaker pops + "thank you" (unzeroed silence buffer) + loop-proof self-heal (2026-09-15)
+
+Serious regression: constant pops and cracks from the speaker whenever the app is
+"ready", and a long dictation coming back as "thank you".
+
+Root cause: the silent keep-alive buffer was never zeroed. A freshly allocated
+`AVAudioPCMBuffer` holds uninitialised memory, so looping it played GARBAGE
+through the speaker (the pops/cracks), and that noise bled into the microphone, so
+Whisper heard junk and returned its silence hallucination, "thank you". Now every
+channel of the buffer is `memset` to zero, so the keep-alive is genuinely silent.
+
+Also hardened the 0.1.22 self-heal so it can never become a rebuild loop (which
+would churn the audio session — more pops, wrecked capture):
+- Removed the `AVAudioEngineConfigurationChange` observer entirely: rebuilding the
+  engine itself posts that notification, so reacting to it is a feedback loop.
+- Added a rate limit — the engine rebuilds at most once every 8 s — so a flapping
+  `isRunning` (from the heartbeat check or any event) cannot churn it.
+- Kept the safe triggers: foreground `resync`, interruption-ended, media reset.
+
 ### 0.1.23 — Expressive mode (2026-09-15)
 
 A fifth mode: Expressive. Casual base, but it punctuates for feeling — an
