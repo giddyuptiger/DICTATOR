@@ -340,6 +340,28 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.15 — crash-durable long recordings + auto-stop feedback (2026-09-15)
+
+Follow-ups on the long-dictation work, plus a keyboard polish pass.
+
+- *Crash mid-recording.* 0.1.14 spilled audio to disk only at the moment
+  transcription started, so a crash while still recording a long dictation
+  lost everything. Now the capture is flushed to disk every 20 s while it
+  runs (`AudioEngineHost.snapshot()` + `persistPending`), bounding the
+  worst-case loss to the last 20 seconds; the next launch recovers it.
+- *Auto-stop at the 5-minute cap.* When the app ends a capture on its own at
+  the cap, the keyboard now follows it into "Transcribing" with a warning
+  haptic, so the user feels that it stopped and knows the words are being
+  saved — instead of sitting on "Listening" while a result quietly arrives.
+  The same watchdog catches the app dying mid-recording and points the user
+  to reopen it (the audio was flushed).
+- *Keyboard polish.* The muddy grey mic states are gone: needs-setup states
+  are amber (attention), transcribing is indigo (busy), both distinct from
+  the board. The mic pill gets a soft shadow so it reads as the one raised,
+  tappable hero above the flat board. (The board itself is Apple's exact
+  light-keyboard grey, on purpose, so Dictator matches the system keyboard
+  beside it — a bigger visual direction is a separate decision.)
+
 ### 0.1.14 — reliable wake button + long-dictation safety (2026-09-15)
 
 Two independent issues, both from the user's testing.

@@ -147,7 +147,23 @@ final class KeyboardViewController: UIInputViewController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 switch self.mode {
-                case .recording, .working, .starting, .retryError, .waking:
+                case .recording:
+                    // The app can end a capture on its own — at the 5-minute cap
+                    // — without the user tapping stop. Follow it into transcribing
+                    // so the keyboard doesn't sit on "Listening" while a result
+                    // quietly arrives, and buzz so the user knows it auto-stopped
+                    // and their words are safe. If instead the app went silent, it
+                    // crashed mid-recording; its audio was flushed to disk.
+                    if SharedStore.liveState == "transcribing" {
+                        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                        self.mode = .working
+                        self.waitForResult(hardCap: Date().addingTimeInterval(180))
+                    } else if SharedStore.secondsSinceLive > 6 {
+                        self.wakeMessage = "Dictator stopped mid-recording. Reopen it to recover your recording."
+                        self.mode = .needsSession
+                    }
+                    return
+                case .working, .starting, .retryError, .waking:
                     return          // mid-flight or showing an error, leave it alone
                 default:
                     self.refreshMode()
@@ -486,11 +502,11 @@ final class KeyboardViewController: UIInputViewController {
         switch mode {
         case .needsFullAccess:
             micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemGray
+            micButton.backgroundColor = .systemOrange   // needs attention, not a muddy grey
             statusLabel.text = "Turn on Full Access for Dictator"
         case .needsKey:
             micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemGray
+            micButton.backgroundColor = .systemOrange
             statusLabel.text = "Add your Groq key in Dictator"
         case .needsSession:
             micButton.isEnabled = true; micButton.alpha = 1
@@ -514,7 +530,7 @@ final class KeyboardViewController: UIInputViewController {
             statusLabel.text = "Listening. Tap to stop."
         case .working:
             micButton.isEnabled = true; micButton.alpha = 1
-            micButton.backgroundColor = .systemGray
+            micButton.backgroundColor = .systemIndigo   // busy; distinct from the grey board
             statusLabel.text = "Transcribing"
         case .retryError:
             micButton.isEnabled = true; micButton.alpha = 1
@@ -1008,7 +1024,13 @@ final class KeyboardViewController: UIInputViewController {
         let b = UIButton(configuration: conf)
         b.contentHorizontalAlignment = .left
         b.backgroundColor = .systemBlue
-        b.layer.cornerRadius = 10
+        b.layer.cornerRadius = 12
+        // A soft shadow so the pill reads as the one raised, tappable hero above
+        // the flat board, rather than another panel painted on it.
+        b.layer.shadowColor = UIColor.black.cgColor
+        b.layer.shadowOpacity = 0.18
+        b.layer.shadowOffset = CGSize(width: 0, height: 1)
+        b.layer.shadowRadius = 3
         b.addTarget(self, action: #selector(micTapped), for: .touchUpInside)
         return b
     }

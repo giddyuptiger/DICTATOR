@@ -218,6 +218,14 @@ final class AudioEngineHost: @unchecked Sendable {
         return out
     }
 
+    /// A non-destructive copy of what has been captured so far. Used to flush a
+    /// long, still-running capture to disk periodically, so a crash mid-recording
+    /// recovers the audio up to the last flush instead of losing all of it.
+    func snapshot() -> [Float] {
+        lock.lock(); defer { lock.unlock() }
+        return samples
+    }
+
     var level: Float {
         lock.lock(); defer { lock.unlock() }
         return latestLevel
@@ -300,6 +308,7 @@ public final class BackgroundRecorder: ObservableObject {
     private var isWarming = false
     private var heartbeat: Timer?
     private var captureCap: Timer?
+    private var flushTimer: Timer?
 
     /// The last captured audio, kept after a failed transcription so the words
     /// are not lost to a network blip. The keyboard offers "Tap to try again",
@@ -512,6 +521,10 @@ public final class BackgroundRecorder: ObservableObject {
         stopLevelTimer()
         heartbeat?.invalidate()
         heartbeat = nil
+        captureCap?.invalidate()
+        captureCap = nil
+        flushTimer?.invalidate()
+        flushTimer = nil
         let host = audio
         Task.detached(priority: .userInitiated) { host.stopEverything() }
         SharedStore.setEngineWarm(false)
@@ -572,7 +585,29 @@ public final class BackgroundRecorder: ObservableObject {
         captureStartedAt = Date()
         startLevelTimer()
         startCaptureCap()
+        startFlush()
         log("capturing")
+    }
+
+    /// While a capture is running, spill what we have to disk every so often. A
+    /// crash or jettison mid-recording then recovers everything up to the last
+    /// flush on next launch, instead of losing the whole in-progress dictation.
+    /// This is the crash protection for a long recording that has not been
+    /// stopped yet; the flush on endCapture then supersedes it with the complete
+    /// audio. Twenty seconds keeps the write rare (each is a few hundred KB to a
+    /// couple of MB) while bounding the worst-case loss to the last 20 seconds.
+    private func startFlush() {
+        flushTimer?.invalidate()
+        let t = Timer(timeInterval: 20, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.state == .capturing else { return }
+                let snap = self.audio.snapshot()
+                guard snap.count > 3_200 else { return }
+                self.persistPending(snap)
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        flushTimer = t
     }
 
     /// A capture with no stop signal must not run forever, but it must be long
@@ -598,6 +633,8 @@ public final class BackgroundRecorder: ObservableObject {
         stopLevelTimer()
         captureCap?.invalidate()
         captureCap = nil
+        flushTimer?.invalidate()
+        flushTimer = nil
 
         // The mic keeps running (it has to, to stay startable); we only stop
         // collecting. The audio is already in memory by this point.
