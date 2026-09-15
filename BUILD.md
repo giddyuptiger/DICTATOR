@@ -352,6 +352,21 @@ is reasoned from the error code, not yet watched on device.** To confirm: run
 `idevicesyslog -n` while tapping the mic from Notes and check that the
 kAUStartIO refusal is gone.
 
+### 0.1.12 — keyboard palette, cleanup diagnostics, bug report (2026-09-14)
+
+Two dictations in a row now work on device, so residency holds. This pass:
+- Keyboard light/dark palette retuned to sit beside Apple's keyboard (near-black
+  board with mid-grey keys in dark; cool-grey board, white keys, ink glyphs in
+  light). The theming reads keyboardAppearance and the trait collection.
+- Modes and emoji: strengthened the mode prompts so Super casual, Casual and
+  Formal read visibly different, and Emoji always ends with exactly one emoji
+  (the old "if nothing fits, use none" escape hatch is gone). The cleanup pass
+  applies these; it was failing silently to raw. Raised its timeout from 8s to
+  15s and added an Activity-log line ("cleanup: applied" / "cleanup: NOT applied
+  (...)") so a missing mode/emoji is diagnosable.
+- Bug reporting: Details has a "Report a problem" button that shares the version,
+  device and activity log via the share sheet.
+
 ### 0.1.11 — restore the silent player so the app survives past one dictation (2026-09-14)
 
 0.1.9 removed the silent keep-alive player, betting a running input engine alone

@@ -76,24 +76,29 @@ final class KeyboardViewController: UIInputViewController {
 
     private var palette: Palette {
         if isDarkKeyboard {
+            // Tuned to sit beside Apple's dark keyboard: a near-black board, a
+            // raised mid-grey letter key that lightens on press, and darker
+            // special keys. White glyphs.
             return Palette(
-                board:          UIColor(white: 0.125, alpha: 1),   // #202020
-                key:            UIColor(white: 0.42,  alpha: 1),   // #6B6B6B
-                keyPressed:     UIColor(white: 0.55,  alpha: 1),
-                special:        UIColor(white: 0.275, alpha: 1),   // #464646
-                specialPressed: UIColor(white: 0.38,  alpha: 1),
+                board:          UIColor(white: 0.11, alpha: 1),   // #1C1C1E
+                key:            UIColor(white: 0.28, alpha: 1),   // #48484A
+                keyPressed:     UIColor(white: 0.40, alpha: 1),   // lighter on touch
+                special:        UIColor(white: 0.19, alpha: 1),   // #313133
+                specialPressed: UIColor(white: 0.28, alpha: 1),
                 keyText:        .white,
                 specialText:    .white
             )
         } else {
+            // Light: a cool grey board, white letter keys, grey special keys,
+            // ink glyphs. Keys darken slightly on press, as Apple's do.
             return Palette(
-                board:          UIColor(red: 0.820, green: 0.827, blue: 0.851, alpha: 1), // #D1D3D9
+                board:          UIColor(red: 0.820, green: 0.831, blue: 0.859, alpha: 1), // #D1D4DB
                 key:            .white,
-                keyPressed:     UIColor(white: 0.87, alpha: 1),
-                special:        UIColor(red: 0.678, green: 0.702, blue: 0.737, alpha: 1), // #ADB3BC
-                specialPressed: UIColor(red: 0.60,  green: 0.63,  blue: 0.67,  alpha: 1),
-                keyText:        .black,
-                specialText:    .black
+                keyPressed:     UIColor(red: 0.894, green: 0.902, blue: 0.918, alpha: 1), // #E4E6EA
+                special:        UIColor(red: 0.675, green: 0.698, blue: 0.741, alpha: 1), // #ACB2BD
+                specialPressed: UIColor(red: 0.749, green: 0.769, blue: 0.804, alpha: 1), // #BFC4CD
+                keyText:        UIColor(red: 0.106, green: 0.106, blue: 0.122, alpha: 1), // #1B1B1F ink
+                specialText:    UIColor(red: 0.106, green: 0.106, blue: 0.122, alpha: 1)
             )
         }
     }

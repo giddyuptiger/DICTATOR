@@ -16,6 +16,17 @@ public struct CleanupResult: Sendable {
     public let usedProvider: Bool
     /// Round trip in seconds, so you can watch the latency budget.
     public let latency: TimeInterval
+    /// A short diagnostic when the model pass did not apply (no provider, or an
+    /// error we degraded past). nil on a clean provider pass. Logged so "why is
+    /// my mode/emoji not applying" is answerable from the Activity log.
+    public let note: String?
+
+    public init(text: String, usedProvider: Bool, latency: TimeInterval, note: String? = nil) {
+        self.text = text
+        self.usedProvider = usedProvider
+        self.latency = latency
+        self.note = note
+    }
 }
 
 public struct Cleaner: Sendable {
@@ -38,7 +49,7 @@ public struct Cleaner: Sendable {
         guard let provider else {
             // No LLM configured: still apply the deterministic dictionary pass.
             let text = dictionary.apply(to: trimmed)
-            return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start))
+            return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "no cleanup provider")
         }
 
         let system = profile.systemPrompt(dictionaryHint: dictionary.promptHint())
@@ -49,9 +60,12 @@ public struct Cleaner: Sendable {
             let final = dictionary.apply(to: cleaned)
             return CleanupResult(text: final, usedProvider: true, latency: Date().timeIntervalSince(start))
         } catch {
-            // Never lose the user's words to a network failure. Degrade to raw.
+            // Never lose the user's words to a network failure. Degrade to raw,
+            // but record why: this is what makes "my mode/emoji did nothing"
+            // diagnosable instead of silent.
             let text = dictionary.apply(to: trimmed)
-            return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start))
+            let reason = String(describing: error).prefix(160)
+            return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup skipped: \(reason)")
         }
     }
 }
@@ -70,7 +84,10 @@ public struct GroqCleanup: CleanupProvider {
         self.apiKey = apiKey
         self.model = model
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 8
+        // 8s was too tight: a 70B model on a longer message can run past it, the
+        // request times out, and cleanup silently degrades to raw (no mode, no
+        // emoji). 15s keeps the whole pipeline under the transcription timeout.
+        config.timeoutIntervalForRequest = 15
         self.session = URLSession(configuration: config)
     }
 

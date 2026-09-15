@@ -161,12 +161,14 @@ public enum DictationMode: String, CaseIterable, Sendable {
         switch self {
         case .superCasual:
             return """
-            SUPER CASUAL. Write how people actually text. Lowercase unless a word \
-            needs the capital. Contractions everywhere. Drop sentence-initial \
-            subjects where speech did ("gonna head out" not "I am going to head \
-            out"). Minimal punctuation: no semicolons, few commas, and no period \
-            on a final short line. Never formalize a word the speaker said \
-            casually.
+            SUPER CASUAL. Write how people actually text. ALWAYS lowercase, \
+            including the first letter of every sentence and the word "i"; only \
+            capitalize a proper noun that truly needs it. Contractions everywhere \
+            (I'm, gonna, wanna, dont). Drop sentence-initial subjects where speech \
+            did ("gonna head out" not "I am going to head out"). Minimal \
+            punctuation: no semicolons, few commas, and no period on the final \
+            line. Never formalize a word the speaker said casually. This must read \
+            visibly more casual than normal writing.
             """
         case .casual:
             return """
@@ -176,20 +178,19 @@ public enum DictationMode: String, CaseIterable, Sendable {
             """
         case .formal:
             return """
-            FORMAL. Complete sentences, no contractions, precise punctuation. \
-            Replace casual connectives with their written equivalents ("so" becomes \
-            "therefore" only where the logic genuinely warrants it, never as \
-            decoration). Do not add flourish, length, or business vocabulary the \
-            speaker did not use. Formal means disciplined, not inflated.
+            FORMAL. Complete, grammatical sentences. NO contractions at all: expand \
+            every one ("I am" not "I'm", "do not" not "don't", "cannot" not \
+            "can't"). Sentence case with precise punctuation. Prefer written \
+            connectives over spoken ones. Do not add flourish, length, or business \
+            vocabulary the speaker did not use. This must read visibly more formal \
+            than normal writing, while keeping the speaker's meaning exactly.
             """
         case .emoji:
             return """
-            CASUAL, plus EXACTLY ONE emoji per message. One. Not one per sentence, \
-            not one per paragraph: one for the whole message, placed where it lands \
-            naturally, which is usually the end. Pick it from what the message is \
-            actually about rather than its mood, and never use it to replace a word \
-            the speaker said. If nothing fits, use no emoji rather than a generic \
-            one.
+            CASUAL, and ALWAYS end the message with exactly one emoji. Exactly one, \
+            for the whole message, at the very end. Choose it from what the message \
+            is about, not a generic smiley, and never use it to replace a word the \
+            speaker said. There is always an emoji that fits; add one every time.
             """
         }
     }

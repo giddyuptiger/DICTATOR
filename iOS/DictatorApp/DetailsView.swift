@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Note: DictationCore is compiled directly into this target as source
 // (see project.yml), not linked as a module, so there is nothing to import.
@@ -11,6 +12,14 @@ struct DetailsView: View {
 
     var body: some View {
         List {
+            Section {
+                ShareLink(item: diagnostics) {
+                    Label("Report a problem", systemImage: "square.and.arrow.up")
+                }
+            } footer: {
+                Text("Shares Dictator's version, your device, and the activity log below so a bug can be diagnosed. Send it to yourself or to support.")
+            }
+
             Section("Last dictation") {
                 if SharedStore.lastLatencyMS > 0 {
                     LabeledContent("Time", value: "\(SharedStore.lastLatencyMS) ms")
@@ -46,5 +55,23 @@ struct DetailsView: View {
             }
         }
         .onAppear { recorder.reloadLog() }
+    }
+
+    /// A plain-text bug report: build, device, OS, and the activity log. The log
+    /// can include the first words of a dictation, so this is shared only when
+    /// the user taps Report a problem.
+    private var diagnostics: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        var lines = [
+            "Dictator \(version) (\(build))",
+            "iOS \(UIDevice.current.systemVersion) · \(UIDevice.current.model)",
+            "Last dictation: \(SharedStore.lastLatencyMS) ms",
+            "",
+            "Activity:"
+        ]
+        lines.append(contentsOf: recorder.eventLog)
+        return lines.joined(separator: "\n")
     }
 }

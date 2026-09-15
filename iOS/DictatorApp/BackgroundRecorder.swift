@@ -615,6 +615,7 @@ public final class BackgroundRecorder: ObservableObject {
             let cleaned = await cleaner.process(raw, profile: ToneProfile.neutral)
             let ms = Int(Date().timeIntervalSince(started) * 1000)
             log("mode: \(DictationMode.current.displayName)")
+            log(cleaned.usedProvider ? "cleanup: applied" : "cleanup: NOT applied (\(cleaned.note ?? "unknown"))")
             finish(text: cleaned.text, ms: ms)
         } catch {
             let (message, retryable) = Self.classify(error)
