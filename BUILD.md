@@ -379,6 +379,23 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.37 — stop typing "thank you" on silence (Whisper hallucination) (2026-09-15)
+
+Device report: tap talk, say nothing, tap stop → it types "thank you". This is
+the classic Whisper silence-hallucination (it was trained on caption tracks, so
+on silent/near-silent audio it emits "Thank you", "Thanks for watching", "Bye").
+Groq runs Whisper, so it inherits it. Different bug from 0.1.24 (that was the
+unzeroed keep-alive buffer bleeding noise); this is genuine quiet input.
+
+Two-layer fix in BackgroundRecorder:
+- SILENCE GATE before the network: energy(samples) computes rms, peak and the
+  voiced-frame ratio (30 ms frames); isLikelySilence requires ALL three to be
+  quiet (rms<0.012, peak<0.08, voiced<0.05) so real/quiet speech still passes.
+  A silent clip is discarded as "Didn't catch that" and never sent to Groq.
+- BACKSTOP after transcription: if the clip was low energy AND the result is a
+  known hallucination phrase (isHallucinationPhrase), drop it. Gated on low
+  energy so a genuine dictation of "thank you" into a text still goes through.
+
 ### 0.1.36 — open Dictator FROM the keyboard: modern method + debug row (2026-09-15)
 
 The keyboard's launch code used the LEGACY perform("openURL:") responder-chain

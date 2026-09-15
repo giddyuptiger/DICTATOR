@@ -828,6 +828,19 @@ public final class BackgroundRecorder: ObservableObject {
             return
         }
 
+        // SILENCE GATE. Whisper (which Groq runs) was trained on mountains of
+        // YouTube captions, so on silent or near-silent audio it confidently
+        // hallucinates "Thank you", "Thanks for watching", "Bye" etc. If the user
+        // tapped talk, said nothing, and tapped stop, sending that to Groq types
+        // "thank you" into their text field. Catch it here: if the clip carries no
+        // real speech energy, never send it. This is a different bug from the
+        // unzeroed-buffer noise fixed in 0.1.24 — this is genuine quiet input.
+        if Self.isLikelySilence(samples) {
+            log(String(format: "silent clip (%.1fs), discarded", seconds))
+            finish(error: "Didn't catch that", retryable: false)
+            return
+        }
+
         // Spill to disk before the network round trip, so a crash mid-transcribe
         // recovers the recording on next launch instead of losing it.
         persistPending(samples)
@@ -904,6 +917,65 @@ public final class BackgroundRecorder: ObservableObject {
         }
     }
 
+    // MARK: - Silence / hallucination detection
+
+    /// Peak amplitude and overall RMS of a clip, plus the fraction of 30 ms
+    /// frames that carry real energy. Speech clears these easily; silence and
+    /// room tone do not.
+    private static func energy(_ samples: [Float]) -> (rms: Float, peak: Float, voicedRatio: Float) {
+        guard !samples.isEmpty else { return (0, 0, 0) }
+        var sum: Float = 0, peak: Float = 0
+        for s in samples {
+            let a = abs(s)
+            sum += s * s
+            if a > peak { peak = a }
+        }
+        let rms = (sum / Float(samples.count)).squareRoot()
+
+        let frame = 480   // 30 ms at 16 kHz
+        var voiced = 0, total = 0, i = 0
+        while i + frame <= samples.count {
+            var fs: Float = 0
+            for j in i..<(i + frame) { fs += samples[j] * samples[j] }
+            if (fs / Float(frame)).squareRoot() > 0.01 { voiced += 1 }
+            total += 1
+            i += frame
+        }
+        let voicedRatio = total > 0 ? Float(voiced) / Float(total) : 0
+        return (rms, peak, voicedRatio)
+    }
+
+    /// Genuine silence / room tone: quiet on ALL three measures. Conservative on
+    /// purpose — real speech (even quiet speech) clears at least one of these — so
+    /// we almost never reject a real dictation.
+    static func isLikelySilence(_ samples: [Float]) -> Bool {
+        let e = energy(samples)
+        return e.rms < 0.012 && e.peak < 0.08 && e.voicedRatio < 0.05
+    }
+
+    /// Looser than isLikelySilence: near-silence that squeaked past the primary
+    /// gate. Used only together with a known hallucination phrase.
+    static func isLowEnergy(_ samples: [Float]) -> Bool {
+        let e = energy(samples)
+        return e.rms < 0.02 && e.voicedRatio < 0.1
+    }
+
+    /// Whisper's notorious outputs on silence/near-silence — the ones it emits
+    /// with no matching speech, from being trained on caption tracks.
+    private static let hallucinationPhrases: Set<String> = [
+        "thank you", "thank you.", "thank you very much", "thank you very much.",
+        "thanks for watching", "thanks for watching!", "thanks for watching.",
+        "thank you for watching", "thank you for watching.",
+        "bye", "bye.", "bye bye", "bye-bye.", "you", "you.",
+        "please subscribe", "please subscribe.",
+    ]
+
+    /// True when the transcript is only a known silence-hallucination phrase.
+    static func isHallucinationPhrase(_ raw: String) -> Bool {
+        let norm = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return hallucinationPhrases.contains(norm)
+    }
+
     private func transcribe(_ samples: [Float]) async {
         // Hold onto the audio until we know the attempt succeeded, so a network
         // failure offers a retry instead of losing the words.
@@ -924,6 +996,17 @@ public final class BackgroundRecorder: ObservableObject {
             guard !raw.isEmpty else {
                 lastSamples = []
                 finish(error: "Nothing heard", retryable: false)
+                return
+            }
+            // Backstop for the Whisper silence-hallucination: if the clip was
+            // low energy AND the model returned one of its notorious silence
+            // phrases ("thank you", "thanks for watching", …), it did not hear
+            // speech — discard rather than type it. Gated on low energy so a real
+            // dictation of "thank you" into a text still goes through.
+            if Self.isLowEnergy(samples), Self.isHallucinationPhrase(raw) {
+                lastSamples = []
+                log("dropped silence hallucination: \(raw.prefix(30))")
+                finish(error: "Didn't catch that", retryable: false)
                 return
             }
             // The host app is unknowable to a keyboard on iOS 26.4+, so we
