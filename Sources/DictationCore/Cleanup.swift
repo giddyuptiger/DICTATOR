@@ -56,6 +56,24 @@ public struct Cleaner: Sendable {
 
         do {
             let cleaned = try await provider.clean(trimmed, system: system)
+            let cleanedTrimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // The safety net. A cleanup model can return an empty string, or treat
+            // the transcript as a request and refuse it ("I'm sorry, but I can't
+            // help with that") — both seen on device, and both used to be typed
+            // verbatim, destroying the user's words. Never let the model's failure
+            // replace what the user actually said: fall back to the raw transcript
+            // (dictionary-corrected). This matters most on longer dictations, which
+            // are exactly where refusals and empties show up.
+            if cleanedTrimmed.isEmpty {
+                let text = dictionary.apply(to: trimmed)
+                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup returned empty; used raw transcript")
+            }
+            if Self.looksLikeRefusal(cleanedTrimmed), !Self.looksLikeRefusal(trimmed) {
+                let text = dictionary.apply(to: trimmed)
+                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup refused; used raw transcript")
+            }
+
             // Dictionary runs after the model, so it wins any disagreement.
             let final = dictionary.apply(to: cleaned)
             return CleanupResult(text: final, usedProvider: true, latency: Date().timeIntervalSince(start))
@@ -67,6 +85,22 @@ public struct Cleaner: Sendable {
             let reason = String(describing: error).prefix(160)
             return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup skipped: \(reason)")
         }
+    }
+
+    /// Whether a cleanup result reads as the model refusing or apologising rather
+    /// than reformatting. Checked against the model's OUTPUT; the caller also
+    /// confirms the raw transcript does not itself start this way, so a user who
+    /// genuinely dictates "I'm sorry..." is not mistaken for a refusal.
+    private static func looksLikeRefusal(_ text: String) -> Bool {
+        let t = text.lowercased()
+        let openers = [
+            "i'm sorry", "i am sorry", "sorry, ", "i cannot", "i can't", "i can not",
+            "i'm not able", "i am not able", "i'm unable", "i am unable",
+            "i won't", "i will not", "i'm just an", "i am just an", "as an ai",
+            "i can't help", "i cannot help", "i can't assist", "i cannot assist",
+            "i can't provide", "i cannot provide", "i'm not going to", "unfortunately, i"
+        ]
+        return openers.contains { t.hasPrefix($0) }
     }
 }
 
@@ -170,7 +204,13 @@ public struct GroqCleanup: CleanupProvider {
             throw CleanupError.unparseable
         }
 
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An empty completion is a failure for THIS model (some models empty out
+        // instead of answering on longer or awkward input). Treat it like an
+        // unavailable model so clean() moves on to the next one; if they all empty,
+        // clean() throws and Cleaner falls back to the raw transcript.
+        if text.isEmpty { throw CleanupError.modelUnavailable }
+        return text
     }
 
     public enum CleanupError: Error {

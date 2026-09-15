@@ -340,6 +340,30 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.17 — cleanup never destroys the words (refusal/empty fallback) (2026-09-15)
+
+The real cause of "it fails badly on longer texts", from device logs: the mic,
+capture and Whisper transcription were all fine, but the Groq *cleanup* LLM was
+either returning an empty completion or treating the transcript as a request and
+refusing it ("I'm sorry, but I can't help with that") — and we typed that empty
+string or refusal straight into the user's document, destroying what they said.
+Short dictations survived; longer/complex ones triggered it.
+
+Three-part fix:
+1. *Hardened cleanup prompt.* The system prompt now frames the transcript as
+   DATA to reformat, never a message addressed to the model, and forbids
+   refusing, apologising, moderating, or returning empty. If unsure, return the
+   transcript unchanged.
+2. *Empty routes to the next model.* An empty completion from one Groq model is
+   treated like an unavailable model, so `clean()` tries the next one instead of
+   giving up.
+3. *The safety net (the important one).* If the cleanup result is still empty or
+   reads as a refusal, `Cleaner` falls back to the raw transcript (dictionary-
+   corrected) instead of the model's output. The user's words are never replaced
+   by the model's failure; the Activity log records the fallback so it stays
+   diagnosable. Trade-off: on a fallback the chosen mode/emoji is not applied
+   (words beat formatting), but this only happens when cleanup failed anyway.
+
 ### 0.1.16 — fix the "grey board, dark keys" theme mix (2026-09-15)
 
 The real cause of the keyboard looking wrong in light mode: `palette` was a
