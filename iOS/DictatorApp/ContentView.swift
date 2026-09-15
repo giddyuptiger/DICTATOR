@@ -106,10 +106,24 @@ struct ContentView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
+            switch phase {
+            case .active:
+                recorder.isForeground = true
                 refreshChecklist()
                 selectedMode = DictationMode.current
                 recorder.reloadLog()
+                // The engine may have died while we were away (iOS suspended it,
+                // an interruption, low memory). Returning to the app used to do
+                // nothing because state was still "warm"; now we rebuild if it is
+                // actually dead. This is the fix for "it says wake and only a
+                // force-quit revives it".
+                if SharedStore.onboardingDone {
+                    Task { await recorder.resync() }
+                }
+            case .background, .inactive:
+                recorder.isForeground = false
+            @unknown default:
+                break
             }
         }
     }

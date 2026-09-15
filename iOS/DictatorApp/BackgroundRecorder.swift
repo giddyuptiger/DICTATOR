@@ -309,6 +309,12 @@ public final class BackgroundRecorder: ObservableObject {
     private var heartbeat: Timer?
     private var captureCap: Timer?
     private var flushTimer: Timer?
+    private var lifecycleObserved = false
+    /// Whether the app is foregrounded. A dead engine can only be rebuilt while
+    /// foregrounded (iOS refuses to start mic input from the background), so the
+    /// health check and the interruption handlers only rebuild when this is true;
+    /// otherwise recovery waits for the next foreground. Set by the app's scene.
+    public var isForeground = true
 
     /// The last captured audio, kept after a failed transcription so the words
     /// are not lost to a network blip. The keyboard offers "Tap to try again",
@@ -432,6 +438,7 @@ public final class BackgroundRecorder: ObservableObject {
                 SharedStore.setEngineWarm(true)
                 startHeartbeat()
                 listen()
+                observeAudioLifecycle()
                 recoverPendingIfAny()
                 return
             } catch {
@@ -461,6 +468,90 @@ public final class BackgroundRecorder: ObservableObject {
         guard case .failed = state else { return }
         state = .cold
         await warmUp()
+    }
+
+    /// Bring the engine back to life if it died while we were away.
+    ///
+    /// This is the fix for the worst bug: use it a few times, leave the app or
+    /// wait, and it says "wake" and is impossible to wake even by returning — only
+    /// a force-quit fixes it. Cause: iOS suspends or kills the audio engine while
+    /// backgrounded (or an interruption stops it), but `state` stays `.warm`, so
+    /// `warmUp()` no-ops (`guard state == .cold`) and nothing ever restarts the
+    /// engine. Returning to the app did nothing because nothing checked whether
+    /// the engine was actually alive. Now the app calls this on every foreground:
+    /// if we are nominally warm but the engine is not running, tear down fully and
+    /// warm again from scratch.
+    public func resync() async {
+        guard !isWarming else { return }           // a warm-up is already running
+        switch state {
+        case .warm:
+            if audio.isRunning { return }          // genuinely alive, nothing to do
+            log("resync: engine died while away; rebuilding")
+            teardownForRewarm()
+            state = .cold
+        case .failed:
+            state = .cold                           // clear so warmUp can run
+        case .cold:
+            break                                   // just warm below
+        case .capturing, .transcribing:
+            return                                  // mid-flight, leave it
+        }
+        await warmUp()
+    }
+
+    /// Full teardown so `warmUp` can start clean: stop the timers, drop the Darwin
+    /// observers (re-adding without removing would double-fire every signal), and
+    /// stop the audio host so its `running` flag is cleared and `startWarm` will
+    /// actually rebuild instead of early-returning.
+    private func teardownForRewarm() {
+        stopLevelTimer()
+        heartbeat?.invalidate(); heartbeat = nil
+        captureCap?.invalidate(); captureCap = nil
+        flushTimer?.invalidate(); flushTimer = nil
+        DarwinBridge.shared.stopObserving()
+        audio.stopEverything()
+    }
+
+    /// One-time observers for the events that stop the audio engine, so it is
+    /// rebuilt as soon as it dies instead of only on the next foreground. iOS does
+    /// not always deliver these (a silent background suspension gives no notice —
+    /// the heartbeat health check and the foreground resync cover that), but the
+    /// common causes (a phone call or other audio interrupting us, a route/format
+    /// change, a mediaserverd reset) do fire here.
+    private func observeAudioLifecycle() {
+        guard !lifecycleObserved else { return }
+        lifecycleObserved = true
+        let nc = NotificationCenter.default
+
+        nc.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+                if type == .ended {
+                    self.log("audio interruption ended; rebuilding")
+                    if self.isForeground { Task { await self.resync() } }
+                } else {
+                    self.log("audio interrupted")
+                }
+            }
+        }
+
+        nc.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.log("engine config changed; rebuilding")
+                if self.isForeground { Task { await self.resync() } }
+            }
+        }
+
+        nc.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.log("media services reset; rebuilding")
+                if self.isForeground { Task { await self.resync() } }
+            }
+        }
     }
 
     private enum WarmUpError: Error { case timedOut }
@@ -517,6 +608,16 @@ public final class BackgroundRecorder: ObservableObject {
         let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.state != .cold else { return }
+                // Health check: if we think we are warm but the engine has died,
+                // rebuild (only while foregrounded — a background rebuild can't
+                // start the mic and would just fail). This catches a silent death
+                // that fires no interruption notice, e.g. "just wait a while and it
+                // stops working" without ever leaving the app.
+                if self.state == .warm, !self.audio.isRunning, self.isForeground {
+                    self.log("heartbeat: engine not running; rebuilding")
+                    Task { await self.resync() }
+                    return
+                }
                 SharedStore.setLiveState(self.state.shortName)
             }
         }

@@ -340,6 +340,30 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.22 — self-healing engine (fix the "zombie, only force-quit revives it" bug) (2026-09-15)
+
+The worst reliability bug, reproduced on a full battery so it was not Low Power
+Mode: use it a few times, leave the app or just wait, and it says "wake" — and
+returning to the app does nothing, only a force-quit revives it. Root cause: iOS
+suspends or kills the audio engine while backgrounded (or an interruption stops
+it), but `state` stayed `.warm`, so `warmUp()` no-oped (`guard state == .cold`)
+and nothing ever rebuilt the engine. Returning to the app changed nothing because
+nothing checked whether the engine was actually alive.
+
+Fix — the engine now heals itself, three ways:
+1. *On foreground.* The app calls `resync()` every time it becomes active: if it
+   is nominally warm but the engine is not running, it tears down fully (timers,
+   Darwin observers, audio host — clearing the `running` flag that made
+   `startWarm` early-return) and warms again from scratch.
+2. *On the events that kill it.* One-time observers for audio-session
+   interruptions ending, engine configuration changes, and media-services resets
+   rebuild immediately (while foregrounded).
+3. *Heartbeat health check.* Every 2 s, if we think we are warm but the engine is
+   not running and we are foregrounded, rebuild — catches a silent death that
+   fires no notification ("just wait a while and it stops").
+
+All rebuilds are guarded so they never race a warm-up already in flight.
+
 ### 0.1.21 — honest wake copy (a keyboard cannot launch its app) (2026-09-15)
 
 Faced a hard platform limit honestly instead of tweaking around it. A keyboard
