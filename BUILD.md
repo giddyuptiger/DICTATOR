@@ -340,6 +340,19 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.25 — spoken punctuation, with reference disambiguation (2026-09-15)
+
+The cleanup prompt now handles spoken punctuation as commands — "period",
+"comma", "question mark", "exclamation point/mark", "colon", "semicolon", "dash",
+"open/close quote", "new line" — writing the mark instead of the words. Crucially
+it distinguishes a command from a reference: "that's amazing exclamation point"
+becomes "that's amazing!", while "I keep using exclamation points" or "put a
+question mark after it" keep the words. Shared core, so iOS and Mac both get it.
+
+Note surfaced this session: on Mac with no Groq key, cleanup is skipped ("0 ms
+cleanup") so NO mode formatting is applied — Expressive/Emoji/spoken-punctuation
+all need the cleanup pass. Transcription is local; the key powers the mode pass.
+
 ### Mac fixes — Settings window + Electron text insertion (2026-09-15)
 
 Mac-only (no marketing-version bump; the Mac app is a local build, not TestFlight).

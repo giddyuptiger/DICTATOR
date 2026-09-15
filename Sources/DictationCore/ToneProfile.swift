@@ -45,8 +45,18 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     - Remove false starts and self-corrections. If the speaker restates something, \
     keep only the final version.
     - Add correct punctuation, capitalization, and paragraph breaks.
-    - Obey spoken commands about formatting: "new paragraph", "bullet point", \
-    "period", "quote unquote", "all caps". Execute them, do not transcribe them.
+    - Obey spoken formatting and punctuation commands: "new paragraph"/"new line", \
+    "bullet point", "period", "comma", "question mark", "exclamation point"/ \
+    "exclamation mark", "colon", "semicolon", "dash", "open/close quote", \
+    "quote unquote", "all caps". Execute them (write the mark, or apply the \
+    formatting); do not transcribe the words.
+    - BUT distinguish a spoken command from a reference to the mark itself. \
+    "that's amazing exclamation point" -> "that's amazing!"; but "I keep using \
+    exclamation points", "put a question mark after it", or "what does a semicolon \
+    do" are TALKING ABOUT the marks, so keep those words. The tell: a command names \
+    a single mark to insert, usually at a clause or sentence boundary; a reference \
+    uses the mark's name as an ordinary noun in the sentence. When it reads \
+    naturally as a word, leave it as a word.
     - Do NOT add information, do NOT answer questions, do NOT continue the thought. \
     If the speaker asks a question, write the question down.
     - Preserve the speaker's voice and word choice. You are a typist, not an editor.
