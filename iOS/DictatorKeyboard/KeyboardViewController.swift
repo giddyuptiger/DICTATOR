@@ -697,6 +697,7 @@ final class KeyboardViewController: UIInputViewController {
     private var lastShiftTap = Date.distantPast
     private var lastSpaceTap = Date.distantPast
     private var deleteRepeat: Timer?
+    private var deleteTicks = 0
     private var letterKeys: [UIButton] = []
 
     private let rowsStack = UIStackView()
@@ -963,25 +964,59 @@ final class KeyboardViewController: UIInputViewController {
     @objc private func deleteDown(_ sender: UIButton) {
         sender.backgroundColor = palette.specialPressed
         deleteRepeat?.invalidate()
-        // Hold to repeat, after the usual half-second grace period.
-        let t = Timer(timeInterval: 0.5, repeats: false) { [weak self] _ in
+        deleteTicks = 0
+        // Hold to repeat, after a short grace period, then ACCELERATE and switch
+        // to whole-word deletion — exactly what the system keyboard does. A flat
+        // per-character repeat crawls when you want to clear a paragraph; this
+        // wipes single chars for the first stretch, then eats words, so holding
+        // backspace actually clears "a bunch" fast.
+        let grace = Timer(timeInterval: 0.35, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let fast = Timer(timeInterval: 0.08, repeats: true) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.textDocumentProxy.deleteBackward() }
+                let fast = Timer(timeInterval: 0.09, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.deleteRepeatTick() }
                 }
                 RunLoop.main.add(fast, forMode: .common)
                 self.deleteRepeat = fast
             }
         }
-        RunLoop.main.add(t, forMode: .common)
-        deleteRepeat = t
+        RunLoop.main.add(grace, forMode: .common)
+        deleteRepeat = grace
+    }
+
+    /// One tick of a held backspace. Deletes single characters for the first
+    /// ~1.5 s, then switches to whole-word deletion so a long hold clears text
+    /// quickly instead of one letter at a time.
+    private func deleteRepeatTick() {
+        deleteTicks += 1
+        if deleteTicks > 16 {
+            deleteWordBackward()
+        } else {
+            textDocumentProxy.deleteBackward()
+        }
+    }
+
+    /// Delete the whitespace and the word immediately before the cursor. Falls
+    /// back to a single character when the host app does not expose the context
+    /// (some secure fields do not).
+    private func deleteWordBackward() {
+        let proxy = textDocumentProxy
+        guard let before = proxy.documentContextBeforeInput, !before.isEmpty else {
+            proxy.deleteBackward(); return
+        }
+        let chars = Array(before)
+        var i = chars.count - 1
+        var count = 0
+        while i >= 0, chars[i].isWhitespace { count += 1; i -= 1 }   // trailing spaces/newlines
+        while i >= 0, !chars[i].isWhitespace { count += 1; i -= 1 }   // the word itself
+        for _ in 0..<max(count, 1) { proxy.deleteBackward() }
     }
 
     @objc private func deleteUp(_ sender: UIButton) {
         sender.backgroundColor = palette.special
         deleteRepeat?.invalidate()
         deleteRepeat = nil
+        deleteTicks = 0
     }
 
     // MARK: - Layout

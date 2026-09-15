@@ -379,6 +379,20 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.32 — hold backspace to clear a lot, fast (2026-09-15)
+
+Hold-to-repeat backspace existed since the first commit but ran a flat
+~12 chars/sec that never accelerated, so clearing a paragraph crawled and felt
+broken. Now it mirrors the system keyboard: single characters for the first
+~1.5 s, then it switches to whole-word deletion (deleteWordBackward walks
+documentContextBeforeInput, eats trailing whitespace then the word). Grace
+before repeat shortened to 0.35 s. Secure fields that hide the context fall back
+to single-character deletes.
+
+(Crash + "stuck on tap to wake" still open — the app being jettisoned in the
+background is the root; needs a device crash log / event-log to fix without
+guessing. See chat.)
+
 ### 0.1.31 — the REAL fix for the "light board, dark keys" theme mix (2026-09-15)
 
 The grey-board/dark-keys mix survived two earlier attempts (a cached bool in
