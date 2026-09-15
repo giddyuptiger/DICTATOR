@@ -35,16 +35,29 @@ SWIFT
 echo "==> Generating the Xcode project"
 xcodegen generate
 
-# Xcode Cloud has automatic dependency resolution turned off, so it requires a
+# Xcode Cloud disables Xcode's automatic package resolution and then requires a
 # committed Package.resolved. This project has none, because the whole .xcodeproj
-# (and its workspace) is generated fresh above and never committed. So resolve
-# the packages here, which writes Package.resolved to the exact path Xcode Cloud
-# looks for: Dictator.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/.
-# Without this the archive fails at "Could not resolve package dependencies"
-# before a single line of Swift is compiled.
-echo "==> Resolving Swift package dependencies (FluidAudio)"
-xcodebuild -resolvePackageDependencies \
-  -project Dictator.xcodeproj \
-  -scheme "Dictator (iOS)"
+# and its workspace are generated fresh above and never committed. `xcodebuild
+# -resolvePackageDependencies` does NOT help: with automatic resolution disabled
+# it refuses to resolve and demands the very file we are missing.
+#
+# SwiftPM's own resolver is not gated by that Xcode flag, and this repo has a
+# Package.swift that pulls the same FluidAudio dependency. So resolve with it,
+# then place the resulting Package.resolved where the generated workspace expects
+# it, so Xcode Cloud's own resolve step finds a valid file and does not try (and
+# fail) to resolve. Without this the archive fails at "Could not resolve package
+# dependencies" before a single line of Swift is compiled.
+echo "==> Resolving Swift packages via SwiftPM (FluidAudio)"
+swift package resolve
+
+RESOLVED_DIR="Dictator.xcodeproj/project.xcworkspace/xcshareddata/swiftpm"
+mkdir -p "$RESOLVED_DIR"
+cp Package.resolved "$RESOLVED_DIR/Package.resolved"
+echo "==> Placed Package.resolved at $RESOLVED_DIR"
+
+# Hedge: also re-enable Xcode's automatic package resolution for any later
+# xcodebuild in this build, in case the copied file alone is not accepted. No-op
+# if the key is not what this Xcode uses.
+defaults write com.apple.dt.Xcode IDEDisableAutomaticPackageResolution -bool NO 2>/dev/null || true
 
 echo "==> Done"
