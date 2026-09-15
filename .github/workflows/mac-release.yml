@@ -1,0 +1,139 @@
+# Auto-build, sign, notarize, and publish the Mac app as a downloadable .dmg.
+#
+# This is the Mac equivalent of the iOS TestFlight pipeline. The Mac app is NOT
+# App Store / TestFlight eligible (non-sandboxed, uses a global hotkey +
+# Accessibility), so it ships as a Developer-ID-signed, notarized .dmg on a
+# GitHub Release instead.
+#
+# TRIGGER: push a tag matching `mac-v*` (e.g. `mac-v0.1.26`), or run manually
+# from the Actions tab. Tag-based on purpose — macOS runner minutes are costly
+# (10x), so we release on intent, not on every commit.
+#
+# REQUIRED REPO SECRETS (Settings → Secrets and variables → Actions):
+#   DEVELOPER_ID_CERT_P12_BASE64  base64 of your exported "Developer ID
+#                                 Application" certificate (.p12)
+#   DEVELOPER_ID_CERT_PASSWORD    the password you set when exporting the .p12
+#   AC_API_KEY_ID                 App Store Connect API key ID (for notarytool)
+#   AC_API_ISSUER_ID              App Store Connect API issuer ID
+#   AC_API_KEY_P8_BASE64          base64 of the downloaded AuthKey_XXXX.p8
+#
+# See README/BUILD.md for exactly how to create each of these.
+
+name: Mac Release
+
+on:
+  push:
+    tags:
+      - 'mac-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create the GitHub Release
+
+jobs:
+  build:
+    runs-on: macos-14
+    env:
+      SCHEME: "Dictator (Mac)"
+      TEAM_ID: W9K8HB89TY
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Import Developer ID certificate
+        env:
+          CERT_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PW="$(uuidgen)"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PW" "$KEYCHAIN_PATH" >/dev/null
+          # Put our keychain first in the search list so xcodebuild finds the cert.
+          security list-keychains -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychains -d user | sed s/\"//g)
+
+      - name: Archive (Developer ID, hardened runtime)
+        run: |
+          set -euo pipefail
+          xcodebuild -project Dictator.xcodeproj \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination "generic/platform=macOS" \
+            -archivePath "$RUNNER_TEMP/Dictator.xcarchive" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime" \
+            archive
+
+      - name: Export the app
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>developer-id</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>manual</string>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Dictator.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export"
+
+      - name: Notarize and staple
+        env:
+          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+          AC_API_KEY_P8_BASE64: ${{ secrets.AC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/export/Dictator.app"
+          echo "$AC_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/ac_key.p8"
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/Dictator-notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/Dictator-notarize.zip" \
+            --key "$RUNNER_TEMP/ac_key.p8" \
+            --key-id "$AC_API_KEY_ID" \
+            --issuer "$AC_API_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$APP"
+
+      - name: Build DMG
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/export/Dictator.app"
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist" 2>/dev/null || echo dev)
+          STAGE="$RUNNER_TEMP/dmg"
+          mkdir -p "$STAGE"
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          DMG="$RUNNER_TEMP/Dictator-$VERSION.dmg"
+          hdiutil create -volname "Dictator" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          echo "DMG_PATH=$DMG" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('mac-v{0}-run{1}', env.VERSION, github.run_number) }}
+          name: Dictator for Mac ${{ env.VERSION }}
+          files: ${{ env.DMG_PATH }}
+          generate_release_notes: true

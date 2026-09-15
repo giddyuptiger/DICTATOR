@@ -8,6 +8,45 @@ at the bottom.
 
 ---
 
+## Mac auto-release (signed + notarized DMG)
+
+The Mac app can't use TestFlight (non-sandboxed, global hotkey + Accessibility),
+so `.github/workflows/mac-release.yml` builds it on a macOS runner, signs it with
+Developer ID, notarizes it, and publishes a `.dmg` to GitHub Releases.
+
+**To cut a release:** push a tag, e.g. `git tag mac-v0.1.26 && git push origin
+mac-v0.1.26` (or run the "Mac Release" workflow manually from the Actions tab).
+The DMG appears under the repo's Releases; download it, drag Dictator to
+/Applications. Because the signature is stable, the Accessibility grant survives
+updates.
+
+**One-time setup — add these five repo secrets** (Settings → Secrets and
+variables → Actions → New repository secret):
+
+1. `DEVELOPER_ID_CERT_P12_BASE64` and `DEVELOPER_ID_CERT_PASSWORD`
+   - In Xcode: Settings → Accounts → (your Apple ID) → Manage Certificates → the
+     "+" → **Developer ID Application**. (One-time; skip if you already have one.)
+   - Open **Keychain Access**, find "Developer ID Application: … (W9K8HB89TY)",
+     right-click → Export → save a `.p12`, set an export password.
+   - Terminal: `base64 -i Certificates.p12 | pbcopy` → paste as
+     `DEVELOPER_ID_CERT_P12_BASE64`. The export password goes in
+     `DEVELOPER_ID_CERT_PASSWORD`.
+
+2. `AC_API_KEY_ID`, `AC_API_ISSUER_ID`, `AC_API_KEY_P8_BASE64` (for notarization)
+   - App Store Connect → **Users and Access → Integrations → App Store Connect
+     API** → generate a key (Access: **Developer**). Download the
+     `AuthKey_XXXXXX.p8` (you can only download it once).
+   - The **Key ID** is on that row → `AC_API_KEY_ID`. The **Issuer ID** is at the
+     top of the page → `AC_API_ISSUER_ID`.
+   - Terminal: `base64 -i AuthKey_XXXXXX.p8 | pbcopy` → paste as
+     `AC_API_KEY_P8_BASE64`.
+
+Once the five secrets are in, tag `mac-v*` and the DMG builds itself. (I can't
+test the workflow from a Linux environment, so the first run may need a tweak —
+paste any failing step's log and it's usually a one-line fix.)
+
+---
+
 ## The thesis
 
 Wispr's iPhone keyboard cannot record audio, so it launches its own app to do it,
