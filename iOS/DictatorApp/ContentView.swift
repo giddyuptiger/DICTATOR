@@ -163,13 +163,13 @@ struct ContentView: View {
         }
     }
 
-    /// The honest mic-state line, so the app never claims the mic is open when it
-    /// is not. It is open only during a capture.
+    /// The honest mic-state line. While Dictator is on, the microphone is open
+    /// the whole time, because that is the only way the keyboard can dictate from
+    /// another app. It is closed only when Dictator is off.
     private var micLine: String {
         switch recorder.state {
-        case .capturing: return "Microphone open"
         case .cold, .failed: return ""
-        default: return "Microphone closed"
+        default: return "Microphone on"
         }
     }
 
@@ -180,7 +180,7 @@ struct ContentView: View {
         case .failed(let e):
             return e.contains("denied") ? "Turn the microphone on in Settings, then come back." : e
         default:
-            return "Dictator stays ready in the background. The microphone opens when you tap the mic on the keyboard and closes when you tap stop."
+            return "Dictator keeps the microphone open while it's on, so the keyboard can dictate from any app. The orange dot shows it. Turn Dictator off to close the microphone."
         }
     }
 

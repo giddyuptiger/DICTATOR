@@ -352,6 +352,26 @@ is reasoned from the error code, not yet watched on device.** To confirm: run
 `idevicesyslog -n` while tapping the mic from Notes and check that the
 kAUStartIO refusal is gone.
 
+### 0.1.9 — the real mic-start fix: foreground-start, always-on input (2026-09-14)
+
+Device logs from build 11 settled the kAUStartIO 2003329396 question for good.
+warm-up succeeded (session active, silence playing), then every keyboard-tapped
+capture failed with `engine(... kAUStartIO ...)`, even after the earlier fix that
+stopped the silence engine first. Conclusion: **iOS refuses to START microphone
+input from the background, full stop.** It is not about how many engines run; a
+new input IO simply cannot start when the app is backgrounded.
+
+So the two-engine "mic closed between dictations" design cannot work, and the
+earlier "the mic opens on tap" copy was wrong. `AudioEngineHost` is now one
+engine, started in the foreground during warm-up with the input tap installed,
+and never stopped. A capture starts no IO; it flips a flag so the already-running
+tap keeps its samples. `openMic`/`closeMic`/the silence keep-alive are gone.
+
+The honest cost, restored in the app and onboarding copy: the microphone and the
+orange dot are on the whole time Dictator is on, not only while dictating. Willow
+and Wispr carry the same cost. This is the design the original BUILD.md described
+("the app starts AVAudioEngine while foregrounded and never stops it").
+
 ### 0.1.8 — fix the Xcode Cloud package-resolution failure (2026-09-14)
 
 Every Xcode Cloud build since the morning of 2026-09-14 failed at dependency

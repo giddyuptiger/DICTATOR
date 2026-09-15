@@ -4,18 +4,19 @@ import Foundation
 // Note: DictationCore is compiled directly into this target as source
 // (see project.yml), not linked as a module, so there is nothing to import.
 
-/// The warm app, and the mic held only while wanted.
+/// The warm app: one input engine, started in the foreground, never stopped.
 ///
-/// THE ONE RULE: the app keeps continuous audio IO the whole time it is on, so
-/// it stays resident in the background and the keyboard can reach it without an
-/// app switch. That IO is claimed while foregrounded and kept by the `audio`
-/// background mode.
+/// THE ONE RULE: the microphone input engine is started once while the app is
+/// foregrounded (warm-up) and then runs for the whole session. That is the only
+/// thing that works. iOS refuses to START microphone input from the background
+/// (kAUStartIO 2003329396), so the keyboard cannot ask a backgrounded app to
+/// open the mic on demand. Instead the mic is already open, and a capture just
+/// starts keeping the samples the running tap already produces.
 ///
-/// Between dictations the audio IO is a silent player, not the microphone. The
-/// microphone opens when the keyboard asks for a capture and closes the moment
-/// the capture ends. So the orange microphone indicator is lit only while you
-/// are actually dictating, not for the whole time the app is on. That is the
-/// privacy story, and it is true: do not describe the mic as open all session.
+/// The honest cost: the microphone, and the orange indicator, are on the whole
+/// time Dictator is on, not only while you are dictating. Willow and Wispr have
+/// the same property for the same reason. Surface it, do not hide it, and never
+/// claim the mic is closed between dictations.
 
 
 /// AVAudioConverter's input block can be invoked more than once per convert()
@@ -66,207 +67,103 @@ final class AudioEngineHost: @unchecked Sendable {
         interleaved: false
     )!
 
-    /// Two engines, deliberately.
+    /// One engine, started once in the foreground and never stopped.
     ///
-    /// `keepAlive` only ever plays silence. It never touches an input node, so
-    /// the session can sit in .playback and no microphone is open: no orange
-    /// indicator, nothing recording, and the process still stays resident
-    /// because the system sees continuous audio playback.
+    /// This is the hard-won shape of the thing. Starting a microphone input from
+    /// the BACKGROUND is refused by iOS: PerformCommand(ioNode, kAUStartIO)
+    /// returns 2003329396, kAudioUnitErr_CannotDoInCurrentContext ('what'),
+    /// whether it is a second engine or the only one. Verified on device
+    /// 2026-09-14: with the keyboard in another app, every background attempt to
+    /// open the mic failed with exactly that code.
     ///
-    /// `recorder` is built when the microphone is actually wanted and torn down
-    /// the moment it is not. It has to be a separate instance: once an
-    /// AVAudioEngine has instantiated its inputNode, that node stays in its
-    /// graph, and starting that engine under a playback-only session fails.
-    ///
-    /// The cost of the split is a session category change and a brief engine
-    /// restart when the keyboard appears, which is once per keyboard, not once
-    /// per sentence.
-    private let keepAlive = AVAudioEngine()
-    private let silence = AVAudioPlayerNode()
-    private var recorder: AVAudioEngine?
-
+    /// So the input engine is started here in the foreground, during warm-up,
+    /// and kept running for the whole session. A capture starts no IO; it only
+    /// flips a flag that decides whether the already-running tap keeps its
+    /// samples. The honest cost is that the microphone, and the orange
+    /// indicator, are on the whole time Dictator is on. Willow and Wispr carry
+    /// the same cost for the same reason. Do not try to close the mic between
+    /// dictations: reopening it in the background is exactly what fails.
+    private let engine = AVAudioEngine()
     private var converter: AVAudioConverter?
     private var samples: [Float] = []
     private var capturing = false
     private var latestLevel: Float = 0
+    private var running = false
     private let lock = NSLock()
 
-    // MARK: - Keep-alive (no microphone)
+    // MARK: - Warm-up (foreground only)
 
-    /// Called once, while foregrounded, and never again.
-    ///
-    /// The category is .playAndRecord from the very start even though no
-    /// microphone is opened yet, and that is the important part. A backgrounded
-    /// app is NOT allowed to activate a session that would interrupt other
-    /// apps: setActive fails with OSStatus 560557684, which is '!int',
-    /// AVAudioSessionErrorCodeCannotInterruptOthers. So the session has to be
-    /// claimed here, in the foreground, where interrupting others is permitted,
-    /// and then left completely alone.
-    ///
-    /// Nothing after this point touches setCategory or setActive. Opening the
-    /// microphone only builds an engine and installs a tap on a session that is
-    /// already ours.
-    ///
-    /// The category alone does not light the orange indicator: that tracks
-    /// actual input, which only runs while the recorder engine does.
-    func startKeepAlive() throws {
-        try setSession(record: true)
-        try runKeepAlive()
-    }
+    /// Claims the audio session and starts the input engine. MUST run while the
+    /// app is foregrounded, because that is the only place iOS lets input IO
+    /// start. Idempotent: a second call while already running is a no-op.
+    func startWarm() throws {
+        guard !running else { return }
 
-    private func setSession(record: Bool) throws {
         let session = AVAudioSession.sharedInstance()
         do {
-            if record {
-                // No .mixWithOthers: that marks the app's audio secondary and
-                // iOS suspends secondary audio apps in the background.
-                try session.setCategory(
-                    .playAndRecord,
-                    mode: .default,
-                    options: [.defaultToSpeaker, .allowBluetoothHFP]
-                )
-            } else {
-                try session.setCategory(.playback, mode: .default)
-            }
+            // .playAndRecord, claimed in the foreground. No .mixWithOthers: that
+            // marks our audio secondary, which iOS suspends in the background.
+            try session.setCategory(
+                .playAndRecord,
+                mode: .default,
+                options: [.defaultToSpeaker, .allowBluetoothHFP]
+            )
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             throw StartError.session(error)
         }
-    }
 
-    /// (Re)starts the silent player. Called again after any category change,
-    /// because the hardware format can move underneath it.
-    private func runKeepAlive() throws {
-        if keepAlive.isRunning { keepAlive.stop() }
-        if silence.isPlaying { silence.stop() }
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0 else { throw StartError.noInputRoute }
 
-        let rate = AVAudioSession.sharedInstance().sampleRate
-        guard let out = AVAudioFormat(
-            standardFormatWithSampleRate: rate > 0 ? rate : 48_000,
-            channels: 2
-        ) else { throw StartError.badFormat }
+        lock.lock()
+        converter = AVAudioConverter(from: format, to: targetFormat)
+        lock.unlock()
 
-        if silence.engine == nil { keepAlive.attach(silence) }
-        keepAlive.connect(silence, to: keepAlive.mainMixerNode, format: out)
+        // Defensive: a prior half-started attempt may have left a tap behind.
+        input.removeTap(onBus: 0)
 
-        do {
-            keepAlive.prepare()
-            try keepAlive.start()
-        } catch {
-            throw StartError.engine(error)
+        // Formed in a nonisolated method so no actor isolation is inherited. A
+        // tap block that inherits @MainActor gets a dispatch_assert_queue
+        // compiled into it, and CoreAudio calls taps from its realtime thread,
+        // which would trap the process on the first buffer.
+        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buf, _ in
+            self?.handle(buf)
         }
 
-        let frames = AVAudioFrameCount(out.sampleRate * 0.5)
-        guard frames > 0, let quiet = AVAudioPCMBuffer(pcmFormat: out, frameCapacity: frames) else {
-            throw StartError.badFormat
-        }
-        // AVAudioPCMBuffer allocates cleared memory, so frameLength is all it
-        // takes to make half a second of silence.
-        quiet.frameLength = frames
-        silence.scheduleBuffer(quiet, at: nil, options: .loops)
-        silence.play()
-    }
-
-    var isKeepAliveRunning: Bool { keepAlive.isRunning && silence.isPlaying }
-
-    // MARK: - Microphone, held only while wanted
-
-    /// Opens the microphone for one capture and returns the input sample rate.
-    ///
-    /// The keep-alive (silence) engine is stopped first, on purpose. Two
-    /// AVAudioEngine instances cannot each run a RemoteIO audio unit on the same
-    /// session at once: starting the second one is refused with
-    /// kAudioUnitErr_CannotDoInCurrentContext (OSStatus 2003329396, 'what'),
-    /// which is exactly the kAUStartIO failure seen on build 1.0 (2). So only one
-    /// engine ever runs: silence for residency between captures, the recorder
-    /// while capturing. The swap is sub-second and both sides are audio IO, so
-    /// background residency is not lost across it, and the microphone is open
-    /// only while the recorder engine runs, which is only during a capture.
-    ///
-    /// Deliberately does not touch the audio session. See startKeepAlive: any
-    /// session change from the background is refused, and this is called from
-    /// the background every single time.
-    func openMic() throws -> Double {
-        if recorder != nil { return AVAudioSession.sharedInstance().sampleRate }
-
-        // Hand the single RemoteIO to the recorder: stop silence before input.
-        pauseKeepAlive()
-
         do {
-            let engine = AVAudioEngine()
-            let input = engine.inputNode
-            let format = input.outputFormat(forBus: 0)
-            guard format.sampleRate > 0 else { throw StartError.noInputRoute }
-
-            lock.lock()
-            converter = AVAudioConverter(from: format, to: targetFormat)
-            lock.unlock()
-
-            // Formed in a nonisolated method so no actor isolation is inherited. A
-            // tap block that inherits @MainActor gets a dispatch_assert_queue
-            // compiled into it, and CoreAudio calls taps from its realtime thread,
-            // which traps the process on the first buffer.
-            input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buf, _ in
-                self?.handle(buf)
-            }
-
             engine.prepare()
             try engine.start()
-
-            recorder = engine
-            return format.sampleRate
         } catch {
-            // Never leave the app with no engine running in the background:
-            // bring silence back before surfacing the failure.
-            try? resumeKeepAlive()
-            if let e = error as? StartError { throw e }
+            input.removeTap(onBus: 0)
             throw StartError.engine(error)
         }
+
+        running = true
     }
 
-    /// Stops the silence engine so the recorder can own the one RemoteIO.
-    private func pauseKeepAlive() {
-        if silence.isPlaying { silence.stop() }
-        if keepAlive.isRunning { keepAlive.stop() }
-    }
+    /// The engine, and therefore the microphone, is live.
+    var isRunning: Bool { running && engine.isRunning }
 
-    /// Restarts the silence engine after a capture, restoring background
-    /// residency. The audio session is left active and .playAndRecord throughout.
-    private func resumeKeepAlive() throws {
-        try runKeepAlive()
-    }
-
-    /// Releases the microphone by destroying the engine that owns it. The
-    /// session is left exactly as it is, because handing it back would mean
-    /// asking for it again later from the background, which is not allowed.
-    func closeMic() {
-        let hadMic = recorder != nil
-        if let engine = recorder {
+    /// Full teardown, user-initiated only. Closes the microphone and hands the
+    /// audio route back.
+    func stopEverything() {
+        if running {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
         }
-        recorder = nil
+        running = false
         lock.lock()
         converter = nil
         capturing = false
         samples.removeAll(keepingCapacity: false)
+        latestLevel = 0
         lock.unlock()
-
-        // Silence comes back so the app stays resident until the next capture.
-        if hadMic { try? resumeKeepAlive() }
-    }
-
-    var isMicOpen: Bool { recorder != nil }
-
-    /// Full teardown, user-initiated.
-    func stopEverything() {
-        closeMic()
-        if silence.isPlaying { silence.stop() }
-        if keepAlive.isRunning { keepAlive.stop() }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    // MARK: - Capture control
+    // MARK: - Capture control (no IO start; the mic is already running)
 
     func begin() {
         lock.lock()
@@ -276,7 +173,8 @@ final class AudioEngineHost: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// Returns everything captured and stops.
+    /// Returns everything captured and stops collecting. The engine keeps
+    /// running; only the flag flips.
     func end() -> [Float] {
         lock.lock()
         capturing = false
@@ -411,7 +309,7 @@ public final class BackgroundRecorder: ObservableObject {
             }
         }
 
-        log("keep-alive: starting (no microphone)")
+        log("warm: starting mic engine (foreground)")
         let host = audio
 
         // Warm-up gets refused when another app is holding the microphone
@@ -424,11 +322,11 @@ public final class BackgroundRecorder: ObservableObject {
         for attempt in 1...maxAttempts {
             do {
                 try await withWarmUpTimeout(seconds: 5) {
-                    try host.startKeepAlive()
+                    try host.startWarm()
                 }
-                log(host.isKeepAliveRunning
-                    ? "keep-alive: silence playing, mic CLOSED"
-                    : "keep-alive: NOT PLAYING, app will be suspended")
+                log(host.isRunning
+                    ? "warm: mic live and listening"
+                    : "warm: engine NOT running, app will be suspended")
                 state = .warm
                 SharedStore.setEngineWarm(true)
                 startHeartbeat()
@@ -581,28 +479,15 @@ public final class BackgroundRecorder: ObservableObject {
             log("start ignored, state \(state)")
             return
         }
-        state = .capturing          // claim it now so a second tap cannot double-start
-        Task { await openMicAndCapture() }
-    }
-
-    /// The microphone is opened here and nowhere else. It is not held while the
-    /// keyboard is merely on screen, and not held between dictations: you tap to
-    /// talk, and that tap is what opens it.
-    private func openMicAndCapture() async {
-        let host = audio
-        do {
-            let rate = try await Task.detached(priority: .userInitiated) {
-                try host.openMic()
-            }.value
-            audio.begin()
-            captureStartedAt = Date()
-            startLevelTimer()
-            startCaptureCap()
-            log("mic OPEN, capturing at \(Int(rate)) Hz")
-        } catch {
-            log("mic failed: \(error)")
-            state = .warm
-        }
+        // The mic is already running from warm-up. Capture starts no IO; it
+        // just tells the running tap to start keeping samples. This is why it
+        // works from the background: nothing is being started here.
+        state = .capturing
+        audio.begin()
+        captureStartedAt = Date()
+        startLevelTimer()
+        startCaptureCap()
+        log("capturing")
     }
 
     /// A capture with no stop signal must not run forever. Two minutes is longer
@@ -627,12 +512,8 @@ public final class BackgroundRecorder: ObservableObject {
         captureCap?.invalidate()
         captureCap = nil
 
-        // Microphone goes straight back. Nothing downstream needs it: the audio
-        // is already in memory by this point.
-        let host = audio
-        Task.detached(priority: .userInitiated) { host.closeMic() }
-        log("mic CLOSED")
-
+        // The mic keeps running (it has to, to stay startable); we only stop
+        // collecting. The audio is already in memory by this point.
         state = .transcribing
         level = 0
         let seconds = Double(samples.count) / 16_000

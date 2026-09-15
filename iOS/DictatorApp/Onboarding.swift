@@ -158,7 +158,7 @@ struct OnboardingView: View {
     private var micStep: some View {
         step(
             title: "The orange dot is the truth",
-            body: "Dictator opens the microphone when you tap the mic on the keyboard and closes it when you tap stop. Your iPhone shows the orange dot whenever it's open. Dictator stays ready in the background; if your iPhone closes it, the keyboard opens it once and you swipe back."
+            body: "While Dictator is on, it keeps the microphone open so the keyboard can dictate from any app without switching back here. Your iPhone shows the orange dot the whole time it's open. Turn Dictator off when you want the microphone closed."
         ) {
             Button("Allow the microphone") {
                 Task {
