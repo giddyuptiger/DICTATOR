@@ -352,6 +352,18 @@ is reasoned from the error code, not yet watched on device.** To confirm: run
 `idevicesyslog -n` while tapping the mic from Notes and check that the
 kAUStartIO refusal is gone.
 
+### 0.1.11 — restore the silent player so the app survives past one dictation (2026-09-14)
+
+0.1.9 removed the silent keep-alive player, betting a running input engine alone
+would keep the backgrounded app resident. On device it did not: after the first
+dictation iOS suspended the app, the engine stopped, the next capture came back
+empty ("message too short" on a long message), and then the app died (keyboard
+fell back to the wake button). Restored a silent AVAudioPlayerNode that plays
+continuously alongside the always-on input, in the one engine. Input keeps the
+mic startable; silent playback is what iOS counts as active background audio and
+keeps the app alive between dictations. Also: a too-short capture now reports a
+result to the keyboard instead of leaving it stuck at "Transcribing" for 25s.
+
 ### 0.1.10 — wake button launches the app again (2026-09-14)
 
 The cold-start wake button ("Open Dictator once") did nothing when tapped,

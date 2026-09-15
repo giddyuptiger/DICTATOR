@@ -84,6 +84,7 @@ final class AudioEngineHost: @unchecked Sendable {
     /// the same cost for the same reason. Do not try to close the mic between
     /// dictations: reopening it in the background is exactly what fails.
     private let engine = AVAudioEngine()
+    private let silence = AVAudioPlayerNode()
     private var converter: AVAudioConverter?
     private var samples: [Float] = []
     private var capturing = false
@@ -132,6 +133,20 @@ final class AudioEngineHost: @unchecked Sendable {
             self?.handle(buf)
         }
 
+        // A silent player runs alongside the input for the whole session. The
+        // running microphone alone does NOT keep the backgrounded app resident:
+        // after the first dictation iOS suspended it, the engine stopped, and
+        // the next capture came back empty. Continuous playback is what iOS
+        // treats as active background audio, so the app, and the running mic,
+        // stay alive between dictations.
+        let rate = session.sampleRate
+        guard let outFormat = AVAudioFormat(
+            standardFormatWithSampleRate: rate > 0 ? rate : 48_000,
+            channels: 2
+        ) else { throw StartError.badFormat }
+        if silence.engine == nil { engine.attach(silence) }
+        engine.connect(silence, to: engine.mainMixerNode, format: outFormat)
+
         do {
             engine.prepare()
             try engine.start()
@@ -139,6 +154,16 @@ final class AudioEngineHost: @unchecked Sendable {
             input.removeTap(onBus: 0)
             throw StartError.engine(error)
         }
+
+        let frames = AVAudioFrameCount(outFormat.sampleRate * 0.5)
+        guard frames > 0, let quiet = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: frames) else {
+            throw StartError.badFormat
+        }
+        // AVAudioPCMBuffer allocates cleared memory, so frameLength alone makes
+        // half a second of silence to loop.
+        quiet.frameLength = frames
+        silence.scheduleBuffer(quiet, at: nil, options: .loops)
+        silence.play()
 
         running = true
     }
@@ -150,6 +175,7 @@ final class AudioEngineHost: @unchecked Sendable {
     /// audio route back.
     func stopEverything() {
         if running {
+            if silence.isPlaying { silence.stop() }
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
         }
@@ -520,8 +546,10 @@ public final class BackgroundRecorder: ObservableObject {
         log(String(format: "captured %.1fs", seconds))
 
         guard samples.count > 3_200 else {   // under 0.2 s
-            state = .warm
+            // Tell the keyboard, otherwise it waits 25s at "Transcribing" for a
+            // result that never comes.
             log("too short, discarded")
+            finish(error: "Didn't catch that", retryable: false)
             return
         }
 
