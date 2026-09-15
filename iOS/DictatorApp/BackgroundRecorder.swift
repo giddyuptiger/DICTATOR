@@ -287,6 +287,11 @@ public final class BackgroundRecorder: ObservableObject {
     }
     @Published public private(set) var level: Float = 0
     @Published public private(set) var lastTranscript: String = ""
+    /// True when `lastTranscript` was recovered from a recording that a previous,
+    /// crashed session had captured but not finished transcribing. The app labels
+    /// the "Last dictation" card differently so the user understands where it came
+    /// from.
+    @Published public private(set) var lastWasRecovered = false
     @Published public private(set) var eventLog: [String] = []
 
     private let audio = AudioEngineHost()
@@ -303,6 +308,48 @@ public final class BackgroundRecorder: ObservableObject {
 
     public init() {
         eventLog = SharedStore.logLines
+    }
+
+    // MARK: - Crash-durable audio
+
+    /// The captured audio is held in memory, so a crash or a jettison while a
+    /// long transcription is in flight would lose the whole recording. Before we
+    /// start transcribing we spill the raw samples to a file in the App Group
+    /// container; on the next warm-up we transcribe whatever is left over. The
+    /// file is deleted the moment an attempt reaches a terminal outcome, so it
+    /// only ever holds audio that genuinely never got a result.
+    ///
+    /// Format is bare little-endian Float32 at 16 kHz mono — the same array the
+    /// rest of the pipeline speaks — so persist and restore are a straight
+    /// memory copy with no encode/decode to get wrong.
+    private static var pendingURL: URL? {
+        FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: SharedStore.appGroup)?
+            .appendingPathComponent("pending.pcmf32")
+    }
+
+    private func persistPending(_ samples: [Float]) {
+        guard let url = Self.pendingURL, !samples.isEmpty else { return }
+        let data = samples.withUnsafeBytes { raw in
+            Data(bytes: raw.baseAddress!, count: raw.count)
+        }
+        do { try data.write(to: url, options: .atomic) }
+        catch { log("persist failed: \(String(describing: error).prefix(80))") }
+    }
+
+    private func readPending() -> [Float]? {
+        guard let url = Self.pendingURL,
+              let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        let count = data.count / MemoryLayout<Float>.stride
+        guard count > 0 else { return nil }
+        return data.withUnsafeBytes { raw in
+            Array(raw.bindMemory(to: Float.self).prefix(count))
+        }
+    }
+
+    private func clearPending() {
+        guard let url = Self.pendingURL else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     // MARK: - Lifecycle
@@ -368,6 +415,7 @@ public final class BackgroundRecorder: ObservableObject {
                 SharedStore.setEngineWarm(true)
                 startHeartbeat()
                 listen()
+                recoverPendingIfAny()
                 return
             } catch {
                 let (message, retryable) = warmUpFailure(error)
@@ -527,14 +575,16 @@ public final class BackgroundRecorder: ObservableObject {
         log("capturing")
     }
 
-    /// A capture with no stop signal must not run forever. Two minutes is longer
-    /// than any sensible utterance and short enough to be a bug, not a bill.
+    /// A capture with no stop signal must not run forever, but it must be long
+    /// enough for a real long-form dictation. Five minutes covers that and is
+    /// still a hard backstop against a lost stop signal holding the mic open.
+    /// (Five minutes of 16 kHz mono Float32 is ~19 MB in memory — fine.)
     private func startCaptureCap() {
         captureCap?.invalidate()
-        let t = Timer(timeInterval: 120, repeats: false) { [weak self] _ in
+        let t = Timer(timeInterval: 300, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.state == .capturing else { return }
-                self.log("capture hit the 2 minute cap")
+                self.log("capture hit the 5 minute cap")
                 self.endCapture()
             }
         }
@@ -557,13 +607,16 @@ public final class BackgroundRecorder: ObservableObject {
         log(String(format: "captured %.1fs", seconds))
 
         guard samples.count > 3_200 else {   // under 0.2 s
-            // Tell the keyboard, otherwise it waits 25s at "Transcribing" for a
+            // Tell the keyboard, otherwise it waits at "Transcribing" for a
             // result that never comes.
             log("too short, discarded")
             finish(error: "Didn't catch that", retryable: false)
             return
         }
 
+        // Spill to disk before the network round trip, so a crash mid-transcribe
+        // recovers the recording on next launch instead of losing it.
+        persistPending(samples)
         Task { await transcribe(samples) }
     }
 
@@ -596,6 +649,45 @@ public final class BackgroundRecorder: ObservableObject {
         state = .transcribing
         log("retrying \(String(format: "%.1fs", Double(samples.count) / 16_000))")
         Task { await transcribe(samples) }
+    }
+
+    /// Called once after warm-up. If a previous session captured a recording but
+    /// crashed or was killed before it produced a result, the raw audio is still
+    /// on disk; transcribe it now and surface it in the app so the words are not
+    /// lost. Deliberately does NOT touch the keyboard result channel or the state
+    /// machine: it runs quietly in the background while the app stays ready to
+    /// dictate, and only fills the "Last dictation" card if the user has not
+    /// already dictated since launch.
+    private func recoverPendingIfAny() {
+        guard let samples = readPending() else { return }
+        guard samples.count > 3_200 else { clearPending(); return }   // too short to matter
+        guard let key = SharedStore.groqAPIKey, !key.isEmpty else { return }  // no key yet; keep the file
+        log(String(format: "recovering %.1fs from a previous session", Double(samples.count) / 16_000))
+        Task { await recover(samples) }
+    }
+
+    private func recover(_ samples: [Float]) async {
+        guard let key = SharedStore.groqAPIKey, !key.isEmpty else { return }
+        let dictionary = PersonalDictionary.mergeFromCloud()
+        let speech = GroqTranscription(apiKey: key, biasTerms: dictionary.entries.map(\.canonical))
+        let cleaner = Cleaner(provider: GroqCleanup(apiKey: key), dictionary: dictionary)
+        do {
+            let raw = try await speech.transcribe(samples: samples)
+            guard !raw.isEmpty else { clearPending(); return }
+            let cleaned = await cleaner.process(raw, profile: ToneProfile.neutral)
+            clearPending()
+            // Never clobber a fresh result: only fill the card if it is still empty.
+            if lastTranscript.isEmpty {
+                lastTranscript = cleaned.text
+                lastWasRecovered = true
+            }
+            log("recovered: \(cleaned.text.prefix(40))")
+        } catch {
+            // Leave the file in place; a later launch, or a better connection,
+            // can recover it. Recovery is best effort and must never throw away
+            // the only copy of the audio because one attempt failed.
+            log("recovery deferred: \(String(describing: error).prefix(80))")
+        }
     }
 
     private func transcribe(_ samples: [Float]) async {
@@ -659,6 +751,8 @@ public final class BackgroundRecorder: ObservableObject {
 
     private func finish(text: String, ms: Int) {
         lastSamples = []
+        clearPending()               // succeeded: the recording is safely typed out
+        lastWasRecovered = false
         lastTranscript = text
         SharedStore.publish(transcript: text, latencyMS: ms)
         DarwinBridge.shared.post(.resultReady)
@@ -667,7 +761,10 @@ public final class BackgroundRecorder: ObservableObject {
     }
 
     private func finish(error: String, retryable: Bool) {
-        if !retryable { lastSamples = [] }
+        // A dead-end failure discards the audio (memory and disk); a retryable one
+        // keeps both, so "Tap to try again" works and a crash before the retry
+        // still recovers on next launch.
+        if !retryable { lastSamples = []; clearPending() }
         SharedStore.publish(error: error, retryable: retryable)
         DarwinBridge.shared.post(.failed)
         state = .warm

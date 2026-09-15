@@ -271,7 +271,13 @@ struct ContentView: View {
     @ViewBuilder
     private var lastDictationSection: some View {
         if !recorder.lastTranscript.isEmpty {
-            section("Last dictation") {
+            section(recorder.lastWasRecovered ? "Recovered dictation" : "Last dictation") {
+                if recorder.lastWasRecovered {
+                    Label("Recovered from a dictation that didn't finish last time.",
+                          systemImage: "arrow.clockwise.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text(recorder.lastTranscript)
                     .font(.callout)
                     .textSelection(.enabled)

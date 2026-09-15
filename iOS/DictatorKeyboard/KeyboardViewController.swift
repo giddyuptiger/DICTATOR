@@ -26,6 +26,7 @@ final class KeyboardViewController: UIInputViewController {
         case needsFullAccess
         case needsKey
         case needsSession      // app not running: cold start required
+        case waking            // launching the app, waiting for it to come alive
         case ready
         case starting          // asked the app to record, waiting for it to confirm
         case recording
@@ -49,6 +50,9 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var modeButton  = makeMode()
     private var lastInserted: String?
     private var retryMessage: String?
+    /// Set when a wake attempt failed, so the needsSession line can tell the
+    /// truth ("couldn't open") instead of the generic "Tap to wake Dictator".
+    private var wakeMessage: String?
 
     // MARK: - Theme
 
@@ -143,7 +147,7 @@ final class KeyboardViewController: UIInputViewController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 switch self.mode {
-                case .recording, .working, .starting, .retryError:
+                case .recording, .working, .starting, .retryError, .waking:
                     return          // mid-flight or showing an error, leave it alone
                 default:
                     self.refreshMode()
@@ -196,7 +200,12 @@ final class KeyboardViewController: UIInputViewController {
     private func refreshMode() {
         guard hasFullAccess else { mode = .needsFullAccess; return }
         guard let k = SharedStore.groqAPIKey, !k.isEmpty else { mode = .needsKey; return }
-        mode = appIsAlive ? .ready : .needsSession
+        if appIsAlive {
+            wakeMessage = nil   // a live app clears any stale "couldn't open" note
+            mode = .ready
+        } else {
+            mode = .needsSession
+        }
     }
 
     // MARK: - Actions
@@ -214,7 +223,7 @@ final class KeyboardViewController: UIInputViewController {
             stopRecording()
         case .retryError:
             retry()
-        case .starting, .working:
+        case .starting, .working, .waking:
             return
         }
     }
@@ -263,7 +272,7 @@ final class KeyboardViewController: UIInputViewController {
     private func stopRecording() {
         DarwinBridge.shared.post(.stopRecording)
         mode = .working
-        waitForResult(deadline: Date().addingTimeInterval(25))
+        waitForResult(hardCap: Date().addingTimeInterval(180))
     }
 
     /// Ask the app to transcribe again on the audio it kept from a failure.
@@ -271,7 +280,7 @@ final class KeyboardViewController: UIInputViewController {
         retryMessage = nil
         DarwinBridge.shared.post(.retry)
         mode = .working
-        waitForResult(deadline: Date().addingTimeInterval(25))
+        waitForResult(hardCap: Date().addingTimeInterval(180))
     }
 
     /// Polls the App Group for a new result token.
@@ -281,19 +290,47 @@ final class KeyboardViewController: UIInputViewController {
     /// the system, and an extension that was torn down and rebuilt between the
     /// stop tap and the transcript has no observer left to receive it. The
     /// shared container survives that; a notification does not.
-    private func waitForResult(deadline: Date) {
+    /// Wait for a transcript, patiently.
+    ///
+    /// The old version gave up after a flat 25 s. A five-minute dictation is a
+    /// ~10 MB upload plus Whisper time, which routinely runs past 25 s, so the
+    /// keyboard would declare failure while the app was still working and then
+    /// strand the result it later produced. The real signals are: a new result
+    /// token (done), or the app going silent (crashed/killed). So wait as long as
+    /// the app keeps stamping the App Group; only the app dying, or an absolute
+    /// backstop, ends the wait. A long transcription now shows elapsed seconds so
+    /// the wait never reads as a hang.
+    private func waitForResult(hardCap: Date) {
         resultWatch?.invalidate()
+        let startedAt = Date()
         let t = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 if SharedStore.resultToken != self.lastSeenToken {
                     self.cancelResultWatch()
                     self.consumeResult()
-                } else if Date() >= deadline {
-                    self.cancelResultWatch()
-                    self.statusLabel.text = "No answer from Dictator. Open the app."
-                    self.mode = .ready
+                    return
                 }
+                // The app crashed or was jettisoned mid-transcription: it has
+                // stopped stamping the App Group. Its audio was persisted to
+                // disk, so reopening recovers it.
+                if SharedStore.secondsSinceLive > 6 {
+                    self.cancelResultWatch()
+                    self.statusLabel.text = "Dictator stopped. Reopen it — your recording was saved."
+                    self.wakeMessage = "Dictator stopped mid-transcription. Reopen it to recover your recording."
+                    self.mode = .needsSession
+                    return
+                }
+                if Date() >= hardCap {
+                    self.cancelResultWatch()
+                    self.statusLabel.text = "Still working. Open Dictator to check."
+                    self.mode = .ready
+                    return
+                }
+                // Still working: show elapsed once it is long enough to matter,
+                // so a slow transcription reads as progress, not a freeze.
+                let elapsed = Int(Date().timeIntervalSince(startedAt))
+                self.statusLabel.text = elapsed >= 3 ? "Transcribing… \(elapsed)s" : "Transcribing"
             }
         }
         RunLoop.main.add(t, forMode: .common)
@@ -306,26 +343,52 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// The one bounce. Only when the app is not running (or needs setup).
+    ///
+    /// The old version was silent when the launch failed: it set "Opening
+    /// Dictator…", trusted `launchViaResponderChain` to have worked, and never
+    /// corrected itself, so a refused launch read as a button that does nothing.
+    /// Now every wake gives haptic feedback, enters a `.waking` state, and polls
+    /// whether the app actually came alive — advancing to ready on success or
+    /// saying so honestly on failure.
     private func coldStart() {
-        mode = .needsSession
-        statusLabel.text = "Opening Dictator. Swipe back and tap again."
+        wakeMessage = nil
+        mode = .waking
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         guard let url = URL(string: "dictator://dictate") else { return }
 
         // extensionContext.open is the sanctioned API, but on current iOS a
-        // keyboard gets `false` back and nothing launches, so the wake button
-        // does nothing. Walking the responder chain to UIApplication.openURL(_:)
-        // DOES launch the container app from a keyboard. It is
-        // private-API-adjacent and an App Store review risk (Jeremy chose to
-        // keep it for TestFlight, 2026-09-14); remove or reconsider it before
-        // any App Store submission. See BUILD.md.
-        if launchViaResponderChain(url) { return }
+        // keyboard gets `false` back and nothing launches. Walking the responder
+        // chain to UIApplication.openURL(_:) DOES launch the container app from a
+        // keyboard. It is private-API-adjacent and an App Store review risk
+        // (Jeremy chose to keep it for TestFlight, 2026-09-14); remove or
+        // reconsider it before any App Store submission. See BUILD.md.
+        let launched = launchViaResponderChain(url)
+        if !launched { extensionContext?.open(url, completionHandler: nil) }
 
-        extensionContext?.open(url) { [weak self] opened in
-            Task { @MainActor in
-                guard let self else { return }
-                self.statusLabel.text = opened
-                    ? "Opening Dictator. Swipe back and tap again."
-                    : "Open the Dictator app once to start."
+        // Whatever the launch call claims, the only truth is whether the app
+        // starts stamping the App Group. Poll for it. If the launch worked, the
+        // app comes to the foreground over us and this timer is suspended until
+        // the user swipes back — by which point viewWillAppear has already found
+        // it alive and moved to .ready, so the failure branch never fires. If the
+        // launch was refused, we stay foregrounded and this reports it.
+        waitForWake(deadline: Date().addingTimeInterval(3.0))
+    }
+
+    private func waitForWake(deadline: Date) {
+        coldStartTimer?.invalidate()
+        coldStartTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.mode == .waking else { return }
+                if self.appIsAlive {
+                    self.cancelWait()
+                    self.wakeMessage = nil
+                    self.mode = .ready
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                } else if Date() >= deadline {
+                    self.cancelWait()
+                    self.wakeMessage = "Couldn't open Dictator. Open it from your Home Screen, then come back."
+                    self.mode = .needsSession
+                }
             }
         }
     }
@@ -432,7 +495,11 @@ final class KeyboardViewController: UIInputViewController {
         case .needsSession:
             micButton.isEnabled = true; micButton.alpha = 1
             micButton.backgroundColor = .systemBlue
-            statusLabel.text = "Open Dictator once"
+            statusLabel.text = wakeMessage ?? "Tap to wake Dictator"
+        case .waking:
+            micButton.isEnabled = true; micButton.alpha = 1
+            micButton.backgroundColor = .systemIndigo
+            statusLabel.text = "Waking Dictator…"
         case .ready:
             micButton.isEnabled = true; micButton.alpha = 1
             micButton.backgroundColor = .systemBlue

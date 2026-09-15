@@ -340,6 +340,48 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.14 — reliable wake button + long-dictation safety (2026-09-15)
+
+Two independent issues, both from the user's testing.
+
+**Wake button "sometimes does nothing."** When the app has been jettisoned, the
+keyboard offers to wake it, but the launch (responder-chain openURL from an
+extension) can be silently refused — and the old code trusted it, set "Opening
+Dictator…", and never corrected itself, so the button read as dead. Now every
+wake tap gives haptic feedback and enters a `.waking` state that polls whether
+the app actually starts stamping the App Group: it advances to ready on success
+(with a success haptic), or says "Couldn't open Dictator. Open it from your Home
+Screen" on failure. The common case — the app is actually alive but the
+keyboard's liveness snapshot went stale — now self-heals within a couple of
+seconds instead of stranding on a lying label.
+
+**Long-dictation safety.** A five-minute dictation used to be fragile in four
+ways; all four are addressed:
+
+- *Truncation.* The capture cap was 2 minutes, so a long dictation was silently
+  cut off. Raised to 5 minutes (still a hard backstop against a lost stop
+  signal). ~19 MB in memory, fine.
+- *Timeout.* The transcription request used a flat 20 s, which a ~10 MB upload
+  plus Whisper time blows past on a slow connection, turning a good recording
+  into a spurious "couldn't reach Groq". The timeout now scales with the
+  recording (≈20 s + 0.4 s per second of audio, capped at 150 s).
+- *The keyboard giving up too early.* It waited a flat 25 s for a result and then
+  declared failure while the app was still working, stranding the transcript.
+  Now it waits as long as the app keeps stamping the App Group — the real
+  signals are a new result (done) or the app going silent (crashed) — and shows
+  elapsed seconds so a long wait reads as progress, not a freeze.
+- *Losing audio to a crash.* Captured audio was memory-only, so a crash or
+  jettison mid-transcription lost the whole recording. The raw samples are now
+  spilled to a file in the App Group before the network round trip and deleted
+  only on a terminal outcome; the next warm-up transcribes any leftover and
+  surfaces it in the app as a "Recovered dictation". The keyboard's crash
+  message now says the recording was saved.
+
+To confirm on device: (1) wake button always responds and ends in a truthful
+state; (2) dictate ~3–5 minutes and confirm it isn't cut off and does transcribe;
+(3) force-quit the app mid-transcription, reopen, and confirm the text appears
+under "Recovered dictation".
+
 ### 0.1.13 — clean audio (two engines) + resilient cleanup model (2026-09-15)
 
 Two bugs from the 0.1.12 device logs, both of which made dictation look

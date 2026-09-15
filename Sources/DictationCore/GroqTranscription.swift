@@ -90,6 +90,15 @@ public struct GroqTranscription: SpeechProvider {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
+        // Scale the timeout with the recording. The session's flat 20 s is fine
+        // for a sentence, but a five-minute clip is a ~10 MB upload plus longer
+        // Whisper time, and on a slow connection the flat timeout fires mid-flight
+        // and turns a good recording into a spurious "couldn't reach Groq". Give
+        // roughly 20 s of headroom plus 0.4 s per second of audio, capped so a
+        // truly stuck request still fails in bounded time.
+        let duration = Double(trimmed.count) / 16_000
+        request.timeoutInterval = min(150, max(30, 20 + duration * 0.4))
+
         var body = Data()
         func field(_ name: String, _ value: String) {
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
