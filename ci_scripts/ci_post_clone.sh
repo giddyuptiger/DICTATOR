@@ -35,4 +35,16 @@ SWIFT
 echo "==> Generating the Xcode project"
 xcodegen generate
 
+# Xcode Cloud has automatic dependency resolution turned off, so it requires a
+# committed Package.resolved. This project has none, because the whole .xcodeproj
+# (and its workspace) is generated fresh above and never committed. So resolve
+# the packages here, which writes Package.resolved to the exact path Xcode Cloud
+# looks for: Dictator.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/.
+# Without this the archive fails at "Could not resolve package dependencies"
+# before a single line of Swift is compiled.
+echo "==> Resolving Swift package dependencies (FluidAudio)"
+xcodebuild -resolvePackageDependencies \
+  -project Dictator.xcodeproj \
+  -scheme "Dictator (iOS)"
+
 echo "==> Done"
