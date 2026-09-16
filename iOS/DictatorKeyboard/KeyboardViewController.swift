@@ -70,10 +70,6 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var undoButton  = makeUndo()
     private lazy var redoButton  = makeRedo()
     private lazy var modeButton  = makeMode()
-    /// Temporary diagnostic row: one button per app-open method, shown only when
-    /// the app is not reachable, so we can find which technique launches Dictator
-    /// on a real device/iOS. Remove once the winning method is confirmed.
-    private lazy var debugRow    = makeDebugRow()
     private var lastInserted: String?
     /// The text most recently removed by undo, so redo can put it back. Cleared
     /// whenever a new dictation is inserted (that invalidates the redo history).
@@ -477,15 +473,6 @@ final class KeyboardViewController: UIInputViewController {
         case modernResponder    // responder chain → UIApplication.open(options:)
         case legacySelector     // responder chain → perform("openURL:") (pre-iOS18)
         case extensionContext   // extensionContext.open (usually refused for kbds)
-
-        /// Short label for the debug button.
-        var label: String {
-            switch self {
-            case .modernResponder:  return "A: open()"
-            case .legacySelector:   return "B: openURL:"
-            case .extensionContext: return "C: extCtx"
-            }
-        }
     }
 
     private var dictateURL: URL { URL(string: "dictator://dictate")! }
@@ -524,37 +511,6 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    /// Debug: try ONE named method, then report whether the app came alive, so we
-    /// can tell exactly which technique launches Dictator on this device/iOS.
-    private func debugTryOpen(_ method: OpenMethod) {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        let made = attemptOpen(method)
-        mode = .waking
-        statusLabel.text = "\(method.label): trying…"
-        let deadline = Date().addingTimeInterval(3.0)
-        coldStartTimer?.invalidate()
-        coldStartTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                if self.appIsAlive {
-                    self.cancelWait()
-                    self.wakeMessage = nil
-                    self.mode = .ready
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                } else if Date() >= deadline {
-                    self.cancelWait()
-                    self.wakeMessage = made
-                        ? "\(method.label): no launch"
-                        : "\(method.label): not available"
-                    self.mode = .needsSession
-                }
-            }
-        }
-    }
-
-    @objc private func debugOpenA() { debugTryOpen(.modernResponder) }
-    @objc private func debugOpenB() { debugTryOpen(.legacySelector) }
-    @objc private func debugOpenC() { debugTryOpen(.extensionContext) }
 
     private func consumeResult() {
         let token = SharedStore.resultToken
@@ -646,15 +602,6 @@ final class KeyboardViewController: UIInputViewController {
 
         micButton.isEnabled = true
         micButton.alpha = 1
-
-        // Show the diagnostic open-method buttons only while the app is not
-        // reachable — that is the only time launching it is relevant.
-        switch mode {
-        case .needsSession, .needsFullAccess, .waking:
-            debugRow.isHidden = false
-        default:
-            debugRow.isHidden = true
-        }
 
         switch mode {
         case .needsFullAccess:
@@ -1145,7 +1092,7 @@ final class KeyboardViewController: UIInputViewController {
         rowsStack.spacing = 11
         rowsStack.distribution = .fillEqually
 
-        let root = UIStackView(arrangedSubviews: [bar, debugRow, rowsStack])
+        let root = UIStackView(arrangedSubviews: [bar, rowsStack])
         root.axis = .vertical
         root.spacing = 8
         root.translatesAutoresizingMaskIntoConstraints = false
@@ -1169,7 +1116,6 @@ final class KeyboardViewController: UIInputViewController {
             root.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
 
             bar.heightAnchor.constraint(equalToConstant: 42),
-            debugRow.heightAnchor.constraint(equalToConstant: 30),
             modeButton.widthAnchor.constraint(equalToConstant: 86),
             undoButton.widthAnchor.constraint(equalToConstant: 42),
             redoButton.widthAnchor.constraint(equalToConstant: 42),
@@ -1268,32 +1214,6 @@ final class KeyboardViewController: UIInputViewController {
         b.layer.cornerRadius = 10
         b.addTarget(self, action: #selector(modeTapped), for: .touchUpInside)
         return b
-    }
-
-    /// Three tiny buttons, one per open method, so we can find which one actually
-    /// launches Dictator on a real device. Tap each; whichever brings Dictator to
-    /// the foreground is the winner. Temporary — removed once confirmed.
-    private func makeDebugRow() -> UIStackView {
-        let make: (String, Selector) -> UIButton = { title, action in
-            let b = UIButton(type: .system)
-            b.setTitle(title, for: .normal)
-            b.titleLabel?.font = .systemFont(ofSize: 12, weight: .semibold)
-            b.setTitleColor(.label, for: .normal)
-            b.backgroundColor = .systemGray4
-            b.layer.cornerRadius = 8
-            b.addTarget(self, action: action, for: .touchUpInside)
-            return b
-        }
-        let row = UIStackView(arrangedSubviews: [
-            make(OpenMethod.modernResponder.label, #selector(debugOpenA)),
-            make(OpenMethod.legacySelector.label,  #selector(debugOpenB)),
-            make(OpenMethod.extensionContext.label, #selector(debugOpenC)),
-        ])
-        row.axis = .horizontal
-        row.spacing = 6
-        row.distribution = .fillEqually
-        row.isHidden = true
-        return row
     }
 
     private func makeGlobe() -> UIButton {

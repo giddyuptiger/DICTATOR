@@ -45,6 +45,10 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     - Remove false starts and self-corrections. If the speaker restates something, \
     keep only the final version.
     - Add correct punctuation, capitalization, and paragraph breaks.
+    - ALWAYS end a question with a question mark. This includes questions phrased \
+    as statements ("you're coming tonight" said as a question -> "you're coming \
+    tonight?") and tag questions ("that works, right" -> "that works, right?"). A \
+    sentence that expects an answer gets a "?", not a ".".
     - Obey spoken formatting and punctuation commands: "new paragraph"/"new line", \
     "bullet point", "period", "comma", "question mark", "exclamation point"/ \
     "exclamation mark", "colon", "semicolon", "dash", "open/close quote", \
@@ -216,13 +220,22 @@ public enum DictationMode: String, CaseIterable, Sendable {
         case .expressive:
             return """
             EXPRESSIVE. A casual base — sentence case, contractions — but punctuate \
-            for feeling. Use an exclamation point where the speaker is genuinely \
-            excited, emphatic, or delighted ("that's amazing!", "let's go!"), and \
-            an ellipsis (…) for a real trailing-off, hesitation, or dramatic pause \
-            ("I don't know… maybe"). Read the speaker's actual energy and match it: \
-            do not end every sentence in "!", do not manufacture excitement that is \
-            not there, and never change or add words — only the punctuation carries \
-            the feeling. When in doubt, an ordinary period is fine.
+            for feeling, and lean IN. This mode exists to add energy, so be \
+            generous (not robotic) with it:
+            - Exclamation points: use them wherever the speaker is excited, \
+            emphatic, delighted, surprised, or giving an upbeat greeting, thanks, \
+            congratulations, or a call to action ("that's amazing!", "let's go!", \
+            "nice work!", "so excited!", "happy birthday!", "let me know!"). If a \
+            line clearly carries positive energy or emphasis, prefer "!" over ".".
+            - Question marks: every question gets one, even excited or rhetorical \
+            ones ("wait what?!", "isn't that wild?", "you're kidding?").
+            - Ellipsis (…) for a genuine trailing-off, hesitation, or dramatic \
+            pause ("I don't know… maybe").
+            - You MAY combine for strong feeling ("no way?!", "we did it!!" only \
+            when the energy is really that high — usually one mark is enough).
+            Still read the speaker's actual energy: a flat, factual sentence keeps \
+            its period, and do not manufacture excitement that is not there. NEVER \
+            change or add words — only punctuation carries the feeling.
             """
         case .emoji:
             return """

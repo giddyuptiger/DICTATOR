@@ -993,6 +993,7 @@ public final class BackgroundRecorder: ObservableObject {
 
         do {
             let raw = try await speech.transcribe(samples: samples)
+            let transcribeMS = Int(Date().timeIntervalSince(started) * 1000)
             guard !raw.isEmpty else {
                 lastSamples = []
                 finish(error: "Nothing heard", retryable: false)
@@ -1014,8 +1015,14 @@ public final class BackgroundRecorder: ObservableObject {
             // the user chose on the keyboard be the sole register control.
             let cleaned = await cleaner.process(raw, profile: ToneProfile.neutral)
             let ms = Int(Date().timeIntervalSince(started) * 1000)
+            let cleanMS = Int(cleaned.latency * 1000)
             log("mode: \(DictationMode.current.displayName)")
             log(cleaned.usedProvider ? "cleanup: applied" : "cleanup: NOT applied (\(cleaned.note ?? "unknown"))")
+            // Stage timing, so a slow dictation is diagnosable: is it the upload +
+            // transcription round trip (dominated by connection speed) or the
+            // cleanup LLM? Shown in the Activity log.
+            log(String(format: "timing: transcribe %dms · cleanup %dms · total %dms",
+                       transcribeMS, cleanMS, ms))
             finish(text: cleaned.text, ms: ms)
         } catch {
             let (message, retryable) = Self.classify(error)

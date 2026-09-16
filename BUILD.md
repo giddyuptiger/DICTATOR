@@ -379,6 +379,25 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.39 — remove debug row, better Expressive punctuation, timing logs (2026-09-16)
+
+Three things from a device session:
+- Debug open-method row REMOVED. Method A (modern responder → UIApplication.open)
+  is confirmed working on device and the pill already uses it, so the temporary
+  A/B/C row is gone (it was confusing when it "popped up" on the wake screen).
+  OpenMethod/attemptOpen stay; coldStart still tries best-first.
+- Expressive mode + question marks. Base prompt now ALWAYS ends a question with
+  "?" (including statement-form and tag questions), fixing missed question marks
+  in every mode. Expressive mode rewritten to lean in: generous (not robotic)
+  exclamation points for excitement/greetings/thanks/calls-to-action, "?" on all
+  questions, ellipsis for trailing-off, optional combined "?!". Still keeps a
+  period on flat factual lines and never adds/changes words.
+- Speed: added per-stage timing to the Activity log ("timing: transcribe Xms ·
+  cleanup Yms · total Zms") to pinpoint whether a slow dictation is the
+  upload+transcription round trip (connection-bound) or the cleanup LLM, before
+  optimizing the real bottleneck. (Weak signal / "5G E" makes the audio upload
+  the prime suspect.)
+
 ### 0.1.38 — redo button (2026-09-15)
 
 Undo already deleted the last inserted dictation. Added a redo button beside it
