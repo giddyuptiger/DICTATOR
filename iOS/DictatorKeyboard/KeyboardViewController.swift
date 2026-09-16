@@ -1119,13 +1119,16 @@ final class KeyboardViewController: UIInputViewController {
         } else {
             shift = (shift == .off) ? .once : .off
         }
-        lastShiftTap = now    }
+        lastShiftTap = now
+    }
 
     @objc private func planeSwitchTapped() {
-        plane = (plane == .letters) ? .numbers : .letters    }
+        plane = (plane == .letters) ? .numbers : .letters
+    }
 
     @objc private func planeToggleTapped() {
-        plane = (plane == .numbers) ? .symbols : .numbers    }
+        plane = (plane == .numbers) ? .symbols : .numbers
+    }
 
     @objc private func spaceTapped() {
         // Double space becomes ". ", matching the system keyboard.
@@ -1139,10 +1142,12 @@ final class KeyboardViewController: UIInputViewController {
         } else {
             textDocumentProxy.insertText(" ")
         }
-        lastSpaceTap = now    }
+        lastSpaceTap = now
+    }
 
     @objc private func returnTapped() {
-        textDocumentProxy.insertText("\n")    }
+        textDocumentProxy.insertText("\n")
+    }
 
     /// The return key says what it will do, like the system keyboard does. A
     /// Send field that offers a key labelled "return" is the kind of small wrong
@@ -1167,7 +1172,8 @@ final class KeyboardViewController: UIInputViewController {
     @objc private func deleteDown(_ sender: UIButton) {
         sender.backgroundColor = palette.specialPressed
         // The one deletion a tap performs, on touch-down like every other key.
-        textDocumentProxy.deleteBackward()        deleteRepeat?.invalidate()
+        textDocumentProxy.deleteBackward()
+        deleteRepeat?.invalidate()
         deleteTicks = 0
         // Hold to repeat, after a short grace period, then ACCELERATE and switch
         // to whole-word deletion — exactly what the system keyboard does. A flat

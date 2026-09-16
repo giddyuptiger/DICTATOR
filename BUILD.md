@@ -382,6 +382,35 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.53 — fix the red archive: two statements welded onto one line (2026-09-16)
+
+Build 54 failed, `xcodebuild archive` exit 65, six seconds in. A compile error,
+not a signing or dependency problem.
+
+0.1.50 stripped `UIDevice.current.playInputClick()` out of the keypress hot path
+by deleting the lines, and the deletion joined the surrounding code instead of
+closing the gap. In five places it welded a closing brace onto the previous
+statement, which is ugly but legal. In one place it welded two statements
+together:
+
+    textDocumentProxy.deleteBackward()        deleteRepeat?.invalidate()
+
+which is `error: consecutive statements on a line must be separated by ';'` and
+is why nothing archived. Split, and the five brace lines restored to normal
+formatting so the next reader is not looking at the same damage.
+
+Nothing else in the file changed. The 0.1.50 decision to keep the keypress path
+minimal stands.
+
+**Two loose ends from 0.1.50, flagged not changed, because they are product
+calls rather than bugs.** `showPreview(for:)`, `hidePreview()` and the
+`keyPreview` label are now unreachable: nothing calls them. And with
+`playInputClick()` gone from every key, the keyboard is silent — no click, no
+pop-up preview, so a keypress now has no feedback at all except the key
+changing colour under a thumb that is covering it. That is a real cost for the
+latency it buys, and if the lag is actually the audio session (the stated
+reason), the preview could come back on its own.
+
 ### 0.1.52 — Expressive: short enthusiastic one-liners get their "!" (2026-09-16)
 
 0.1.49 dialled ! back to "rare / one per paragraph" — but that under-marked
