@@ -157,14 +157,24 @@ final class AudioEngineHost: @unchecked Sendable {
         // Input engine: pure input, no output. This is what keeps the mic clean.
         let input = inputEngine.inputNode
         let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else { throw StartError.noInputRoute }
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw StartError.noInputRoute }
 
+        // THE CRASH FIX. Do NOT assert a pre-read format to installTap. After an
+        // audio interruption or a route change, the input node's live format can
+        // differ from what we read a moment ago, and passing the stale format to
+        // installTap throws a hard ObjC exception:
+        //   "Failed to create tap due to format mismatch"
+        // which killed the app on EVERY rebuild-after-interruption — a crash loop
+        // that also pegged the CPU and made the keyboard lag. Passing nil makes
+        // the tap use the bus's OWN current format, so it can never mismatch; and
+        // the converter is built lazily in handle() from the buffers the tap
+        // actually delivers, so conversion always matches whatever format that is.
         lock.lock()
-        converter = AVAudioConverter(from: format, to: targetFormat)
+        converter = nil
         lock.unlock()
 
         input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buf, _ in
+        input.installTap(onBus: 0, bufferSize: 2048, format: nil) { [weak self] buf, _ in
             self?.handle(buf)
         }
 
@@ -325,7 +335,20 @@ final class AudioEngineHost: @unchecked Sendable {
     private func handle(_ buf: AVAudioPCMBuffer) {
         lock.lock()
         let active = capturing
-        let conv = converter
+        var conv = converter
+        // Build (or rebuild) the converter from the ACTUAL buffer format the tap
+        // is delivering. The tap was installed with a nil format, so its buffers
+        // carry the input node's real, current format — which can change across
+        // interruptions and route changes. Binding the converter to the live
+        // buffer keeps conversion correct without ever asserting a format that
+        // could mismatch. Only built while capturing, and only when missing or
+        // when the format actually changed, so it is effectively once per capture.
+        if active,
+           conv?.inputFormat.sampleRate != buf.format.sampleRate
+            || conv?.inputFormat.channelCount != buf.format.channelCount {
+            conv = AVAudioConverter(from: buf.format, to: targetFormat)
+            converter = conv
+        }
         lock.unlock()
 
         guard active, let conv else { return }
