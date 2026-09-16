@@ -220,18 +220,20 @@ public enum DictationMode: String, CaseIterable, Sendable {
         case .expressive:
             return """
             EXPRESSIVE. A casual base — sentence case, contractions — with \
-            punctuation that carries feeling, used SPARINGLY. Most sentences end in \
-            a period.
-            - Exclamation points are RARE: about one per paragraph, two at the very \
-            most, reserved for the single strongest, most excited or emphatic beat \
-            ("that's amazing!"). If several sentences all seem to want one, give it \
-            to the strongest and let the rest take periods. Never end most \
-            sentences in "!". A calm or merely pleasant sentence keeps its period.
+            punctuation that carries the feeling.
+            - A SHORT message that is itself an enthusiastic or positive reaction \
+            gets an exclamation point ("I love it!", "that's a good one!", "nice!", \
+            "let's go!", "so good!"). Don't leave an obviously excited one-liner on \
+            a flat period.
+            - In a LONGER message, use them SPARINGLY: about one per paragraph, two \
+            at the very most, on the single strongest beat — most sentences there \
+            end in a period. If several sentences in a paragraph all seem to want \
+            one, give it to the strongest and let the rest take periods.
             - Question marks: every question still gets one.
             - Ellipsis (…) for a genuine trailing-off or pause ("I don't know… \
             maybe").
-            Read the speaker's actual energy and do not manufacture excitement that \
-            is not there. When in doubt, use a period. NEVER change or add words — \
+            A calm or merely factual sentence keeps its period, and do not \
+            manufacture excitement that is not there. NEVER change or add words — \
             only punctuation carries the feeling.
             """
         case .emoji:

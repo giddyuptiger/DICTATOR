@@ -382,6 +382,14 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.52 — Expressive: short enthusiastic one-liners get their "!" (2026-09-16)
+
+0.1.49 dialled ! back to "rare / one per paragraph" — but that under-marked
+short excited messages ("I love it", "that's a good one" came back on a flat
+period). Split the rule: a SHORT message that is itself an enthusiastic/positive
+reaction gets a "!"; a LONGER message stays sparing (about one per paragraph, on
+the strongest beat). So one-liners feel alive without paragraphs getting sprayed.
+
 ### 0.1.51 — fix wake pill "flickers, does nothing" + duplicate "ready" (2026-09-16)
 
 Two device reports:
