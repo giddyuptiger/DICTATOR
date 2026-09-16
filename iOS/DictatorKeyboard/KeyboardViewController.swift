@@ -330,9 +330,13 @@ final class KeyboardViewController: UIInputViewController {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 } else if Date() >= deadline {
                     self.cancelWait()
-                    // Nobody picked up. Say so rather than quietly reverting to
-                    // "Tap to talk", which reads as a button that does nothing.
-                    self.coldStart()
+                    // Nobody picked up: the app is not resident (iOS suspended or
+                    // killed it — common in Low Power Mode). Show the wake prompt
+                    // rather than AUTO-launching the app: an unexpected jump to
+                    // Dictator mid-typing is jarring. The user taps to wake it
+                    // deliberately.
+                    self.wakeMessage = nil
+                    self.mode = .needsSession
                 }
             }
         }
@@ -838,6 +842,11 @@ final class KeyboardViewController: UIInputViewController {
             action: #selector(planeSwitchTapped)
         )
         let space = makeSpecial(image: nil, title: "space", action: #selector(spaceTapped))
+        // Space on touch-DOWN too, for the same reason as the letters: fast typing
+        // rolls off the space bar before a clean touchUpInside, dropping the space
+        // (this is what turned "chat tomorrow" into "chattomorrow").
+        space.removeTarget(self, action: #selector(spaceTapped), for: .touchUpInside)
+        space.addTarget(self, action: #selector(spaceTapped), for: .touchDown)
         space.backgroundColor = palette.key
         space.setTitleColor(palette.keyText, for: .normal)
         let ret = makeSpecial(image: nil, title: "return", action: #selector(returnTapped))
@@ -883,7 +892,10 @@ final class KeyboardViewController: UIInputViewController {
         b.layer.shadowOpacity = 0.28
         b.layer.shadowOffset = CGSize(width: 0, height: 1)
         b.layer.shadowRadius = 0
-        b.addTarget(self, action: #selector(keyTapped(_:)), for: .touchUpInside)
+        // Insert on touch-DOWN, like the system keyboard. Inserting on
+        // touchUpInside dropped characters during fast "rolling" typing (you press
+        // the next key before lifting the last, so the previous key never fires a
+        // clean touchUpInside). touchDown fires reliably for every key press.
         b.addTarget(self, action: #selector(keyDown(_:)), for: .touchDown)
         b.addTarget(self, action: #selector(keyUp(_:)), for: [.touchUpInside, .touchUpOutside, .touchCancel])
         return b
@@ -954,14 +966,13 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: - Typing actions
 
-    @objc private func keyTapped(_ sender: UIButton) {
-        guard let t = sender.title(for: .normal) else { return }
-        textDocumentProxy.insertText(t)
-        UIDevice.current.playInputClick()
-        if shift == .once { shift = .off }
-    }
-
     @objc private func keyDown(_ sender: UIButton) {
+        // The actual insertion, on touch-down, so fast typing never drops a key.
+        if let t = sender.title(for: .normal) {
+            textDocumentProxy.insertText(t)
+            UIDevice.current.playInputClick()
+            if shift == .once { shift = .off }
+        }
         sender.backgroundColor = palette.keyPressed
         showPreview(for: sender)
     }

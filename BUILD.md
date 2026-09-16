@@ -379,6 +379,25 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.41 — fix dropped/garbled fast typing + stop surprise app-opens (2026-09-16)
+
+Device report: fast typing dropped letters and spaces and merged words
+("chat tomorrow" -> "chattomorrow", "the countdown" -> "thcoUntdown"), and the
+keyboard sometimes jumped to the Dictator app mid-typing.
+
+- Dropped characters: letter keys and the space bar inserted on .touchUpInside.
+  During fast "rolling" typing you press the next key before lifting the last, so
+  the previous key never fires a clean touchUpInside and its character is dropped
+  (and the stray capital came from the shift-once reset racing). Fix: insert on
+  .touchDown, exactly like the system keyboard. keyDown now does the insert;
+  space is rewired from touchUpInside to touchDown too. Special keys that rely on
+  double-tap timing (shift caps-lock, return) stay on touchUpInside.
+- Surprise app-open: waitForCapture's deadline branch used to AUTO-call
+  coldStart() when a recording did not start (app not resident — common in Low
+  Power Mode, note the red battery in the report), which yanked the user into the
+  Dictator app mid-typing. Now it just shows the wake prompt; opening the app is
+  only ever a deliberate pill tap.
+
 ### 0.1.40 — clean up the wake flow (warm, don't record; "ready, go back" banner) (2026-09-16)
 
 Device report: waking the app works, but it doesn't return you to the app you
