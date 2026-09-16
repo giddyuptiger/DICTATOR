@@ -21,13 +21,13 @@ struct DictatorApp: App {
                     // own explained microphone step.
                 }
                 .onOpenURL { url in
-                    // dictator://dictate — the keyboard's cold-start fallback.
-                    // The app may be launching cold from this URL, so the engine
-                    // is not warm yet and a bare beginCapture() would no-op. Warm
-                    // (or resync) first, THEN begin, so waking from the keyboard
-                    // actually starts recording instead of silently doing nothing.
+                    // dictator://dictate — the keyboard woke a sleeping app. Only
+                    // WARM (do not record here): the user wants to dictate in their
+                    // other app. Warming makes Dictator resident so the keyboard
+                    // reaches it in place from now on, and the banner tells the
+                    // user to go back once.
                     if url.host == "dictate" {
-                        Task { await recorder.warmAndCapture() }
+                        Task { await recorder.warmForWake() }
                     }
                 }
         }
@@ -67,6 +67,9 @@ struct ContentView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    if recorder.wokeForDictation {
+                        wakeReadyBanner
+                    }
                     statusCard
                     turnButton
                     modeSection
@@ -128,6 +131,9 @@ struct ContentView: View {
                 }
             case .background, .inactive:
                 recorder.isForeground = false
+                // The user has left (the whole point of the wake banner), so the
+                // one-time "you're ready, go back" prompt has done its job.
+                recorder.wokeForDictation = false
             @unknown default:
                 break
             }
@@ -135,6 +141,32 @@ struct ContentView: View {
     }
 
     // MARK: - Status
+
+    /// Shown once, right after the keyboard woke the app. iOS has no way for an
+    /// app to send you back to where you came from, so we tell the user to tap the
+    /// system "‹ back" button (top-left) — and, crucially, that this is a one-time
+    /// step: once Dictator is running it stays ready and the keyboard reaches it in
+    /// place, so they won't have to leave their app again.
+    private var wakeReadyBanner: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title2)
+                .foregroundStyle(Self.pastelGreen)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Dictator is ready")
+                    .font(.headline)
+                Text("Tap ‹ back at the top-left to return to your app, then tap the mic. You only have to do this once — Dictator now stays ready in the background.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Self.pastelGreen.opacity(0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
 
     private var statusCard: some View {
         VStack(alignment: .leading, spacing: 10) {

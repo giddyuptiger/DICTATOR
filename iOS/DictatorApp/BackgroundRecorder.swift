@@ -727,26 +727,19 @@ public final class BackgroundRecorder: ObservableObject {
 
     // MARK: - Capture
 
-    /// Warm the engine if needed, then begin capturing. This is what the
-    /// keyboard's cold-start URL (dictator://dictate) drives: the app may have
-    /// just launched from cold, so we cannot assume the engine is warm. Warm (or
-    /// resync a dead one), wait for it to actually reach `.warm`, then capture —
-    /// so waking from the keyboard genuinely starts a recording.
-    public func warmAndCapture() async {
+    /// Set right after the keyboard's wake URL launches the app, so the UI can
+    /// show a one-time "you're ready, go back to your app" banner. Cleared when
+    /// the app next goes to the background (the user has left, as intended).
+    @Published public var wokeForDictation = false
+
+    /// The keyboard's cold-start URL (dictator://dictate) drives this: the app was
+    /// asleep, the keyboard woke it. We only WARM here — we do NOT start recording,
+    /// because the user wanted to dictate in their other app, not in Dictator.
+    /// Warming makes the app resident so from now on the keyboard reaches it in
+    /// place, with no more bouncing. The banner tells the user to go back once.
+    public func warmForWake() async {
         if state != .warm { await resync() }
-        // resync() runs warmUp(); give it a brief window to land on .warm before
-        // we begin, since the audio start is off the main thread.
-        if state != .warm {
-            for _ in 0..<20 {   // up to ~2s
-                try? await Task.sleep(nanoseconds: 100_000_000)
-                if state == .warm || isFailed { break }
-            }
-        }
-        guard state == .warm else {
-            log("warmAndCapture: engine not warm (\(state)); not capturing")
-            return
-        }
-        beginCapture()
+        wokeForDictation = true
     }
 
     public func beginCapture() {

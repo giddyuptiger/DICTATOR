@@ -379,6 +379,24 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.40 — clean up the wake flow (warm, don't record; "ready, go back" banner) (2026-09-16)
+
+Device report: waking the app works, but it doesn't return you to the app you
+were dictating into. iOS has NO public API for an app to switch back to the
+previous app (the private `suspend` trick is an App Store risk and lands on the
+Home Screen anyway), so auto-return is not a real option. The right model is:
+open Dictator ONCE, it becomes resident, and the keyboard reaches it in place
+after that — no repeated bouncing.
+
+Two fixes so that model actually feels right:
+- onOpenURL (dictator://dictate) now only WARMS; it no longer starts recording
+  inside Dictator (warmAndCapture removed). Recording in the foreground app was
+  confusing since the user wanted to dictate in their other app.
+- New one-time "Dictator is ready" banner (wokeForDictation flag) tells the user
+  to tap the system "‹ back" button top-left and that this is a one-time step
+  because the app now stays ready in the background. Cleared when the app next
+  backgrounds (they've left, as intended).
+
 ### 0.1.39 — remove debug row, better Expressive punctuation, timing logs (2026-09-16)
 
 Three things from a device session:
