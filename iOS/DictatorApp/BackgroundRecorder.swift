@@ -371,7 +371,14 @@ public final class BackgroundRecorder: ObservableObject {
     private var heartbeat: Timer?
     private var captureCap: Timer?
     private var flushTimer: Timer?
+    private var idleTimer: Timer?
     private var lifecycleObserved = false
+    /// How long the mic may stay open with no dictation before we release it
+    /// (orange dot off). Reset on every warm-up and every capture, so an active
+    /// texting session never trips it; only a real lull does. Re-waking after a
+    /// release costs one tap, which is the accepted price of not holding the mic
+    /// (and the orange indicator) open all day.
+    private let idleWindow: TimeInterval = 5 * 60
     /// Whether the app is foregrounded. A dead engine can only be rebuilt while
     /// foregrounded (iOS refuses to start mic input from the background), so the
     /// health check and the interruption handlers only rebuild when this is true;
@@ -499,6 +506,7 @@ public final class BackgroundRecorder: ObservableObject {
                 state = .warm
                 SharedStore.setEngineWarm(true)
                 startHeartbeat()
+                bumpIdleTimer()
                 listen()
                 observeAudioLifecycle()
                 recoverPendingIfAny()
@@ -580,6 +588,7 @@ public final class BackgroundRecorder: ObservableObject {
         heartbeat?.invalidate(); heartbeat = nil
         captureCap?.invalidate(); captureCap = nil
         flushTimer?.invalidate(); flushTimer = nil
+        idleTimer?.invalidate(); idleTimer = nil
         DarwinBridge.shared.stopObserving()
         audio.stopEverything()
     }
@@ -720,11 +729,46 @@ public final class BackgroundRecorder: ObservableObject {
         captureCap = nil
         flushTimer?.invalidate()
         flushTimer = nil
+        idleTimer?.invalidate()
+        idleTimer = nil
         let host = audio
         Task.detached(priority: .userInitiated) { host.stopEverything() }
         SharedStore.setEngineWarm(false)
         state = .cold
         log("engine stopped by user")
+    }
+
+    // MARK: - Idle auto-off (release the mic when it is not earning its keep)
+
+    /// Restart the inactivity countdown. Called on warm-up and on every capture,
+    /// so the mic only ever auto-releases after a genuine lull, never mid-session.
+    private func bumpIdleTimer() {
+        idleTimer?.invalidate()
+        let t = Timer(timeInterval: idleWindow, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.releaseIfIdle() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        idleTimer = t
+    }
+
+    /// Release the microphone after the idle window. Only when we are genuinely
+    /// warm-and-idle: never mid-capture/transcribe, and if the app is on screen we
+    /// keep it live (the user is right here and likely about to dictate). Once
+    /// released, the orange dot goes away; the next dictation re-wakes it with one
+    /// tap, and returning to the app also re-warms it.
+    private func releaseIfIdle() {
+        guard state == .warm else { return }
+        if isForeground { bumpIdleTimer(); return }   // still here — keep it warm
+        log("mic released after \(Int(idleWindow / 60))m idle")
+        stopLevelTimer()
+        heartbeat?.invalidate(); heartbeat = nil
+        captureCap?.invalidate(); captureCap = nil
+        flushTimer?.invalidate(); flushTimer = nil
+        idleTimer?.invalidate(); idleTimer = nil
+        let host = audio
+        Task.detached(priority: .utility) { host.stopEverything() }
+        SharedStore.setEngineWarm(false)
+        state = .cold
     }
 
     // MARK: - Darwin signals from the keyboard
@@ -800,6 +844,7 @@ public final class BackgroundRecorder: ObservableObject {
         // just tells the running tap to start keeping samples. This is why it
         // works from the background: nothing is being started here.
         state = .capturing
+        bumpIdleTimer()          // activity: push the idle auto-off back out
         audio.begin()
         captureStartedAt = Date()
         startLevelTimer()

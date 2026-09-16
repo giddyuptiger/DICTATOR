@@ -379,6 +379,23 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.45 — idle auto-off: stop holding the mic (orange dot) open all day (2026-09-16)
+
+User: "the mic just keeps being on randomly when it really doesn't need to be,
+users won't appreciate it." True — the always-on mic is the cost of triggering
+dictation from the background without opening the app each time (iOS forbids
+STARTING the mic from the background, so it must already be open). Wispr avoids
+the always-on mic only by opening the app for every dictation (the bouncing the
+user dislikes). It is genuinely one or the other.
+
+Middle ground shipped: idle auto-off. A 5-minute inactivity timer (bumpIdleTimer,
+reset on every warm-up and every capture) releases the mic (stopEverything ->
+orange dot off, state .cold) once there has been no dictation for the window AND
+the app is backgrounded. If the app is on screen it stays warm. During an active
+texting session the timer keeps getting pushed out, so it never releases
+mid-session; only a real lull trips it. Re-waking after a release is one tap.
+Window is a single constant (idleWindow) so it is easy to tune.
+
 ### 0.1.44 — stop dictating into a dead mic (the activity-log smoking gun) (2026-09-16)
 
 The device activity log showed the real "stops mid-dictation" failure: an audio
