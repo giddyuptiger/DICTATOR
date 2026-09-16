@@ -147,6 +147,23 @@ public enum SharedStore {
         set { defaults?.set(newValue, forKey: Key.groqKey) }
     }
 
+    /// How long the mic may sit idle before Dictator releases it, in minutes.
+    /// 0 means never release.
+    ///
+    /// This was a hard-coded five minutes, and it is the one setting that trades
+    /// the two complaints against each other: a short window means the orange
+    /// dot goes away sooner, and it also means a lull longer than the window
+    /// costs a trip to the app and a manual swipe back, because the mic cannot
+    /// be reopened from the background. Five minutes put that trip in the middle
+    /// of ordinary use. Thirty is long enough to cover a conversation.
+    public static var idleReleaseMinutes: Int {
+        get {
+            guard let d = defaults, d.object(forKey: "idleReleaseMinutes") != nil else { return 30 }
+            return d.integer(forKey: "idleReleaseMinutes")
+        }
+        set { defaults?.set(newValue, forKey: "idleReleaseMinutes") }
+    }
+
     /// The last Groq cleanup model that worked, so we skip re-probing dead ones
     /// every time (Groq rotates models). Set by GroqCleanup on a successful call.
     public static var cleanupModel: String? {

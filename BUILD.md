@@ -382,6 +382,79 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.48 — the real reason you wake it every other minute (2026-09-16)
+
+Report: "I have to do it like every other minute, it's often." The 0.1.45 idle
+timer cannot explain that — it is five minutes and every dictation pushes it
+back. So the app was losing residency some other way. It was losing it three
+ways, and two of them were self-inflicted.
+
+**Nothing watched the thing that keeps the app alive.** The silent player is the
+only reason iOS does not suspend a backgrounded Dictator. The 2 s heartbeat
+checks `audio.isRunning`, which is the MICROPHONE engine. The mic can be
+perfectly healthy while the player has stopped, and a few seconds after it stops
+the process is suspended, the heartbeat stops stamping the App Group, and the
+keyboard reports the app gone. The heartbeat now checks the keep-alive too and
+restarts it, which is legal from the background because only starting mic INPUT
+is refused. Rate limited to one attempt per 10 s, logged on transitions.
+
+**`isSilenceRunning` could not see a stopped player.** It returned
+`silenceRunning && silenceEngine.isRunning`, with no test of `silence.isPlaying`
+— and a route change stops the PLAYER while leaving the engine up. The internal
+repair path always checked both; the public read a health check would use did
+not, so the new heartbeat check would have been lied to. Fixed first.
+
+**Route changes were not observed at all.** Headphones in or out, a Bluetooth
+device connecting or dropping, the system moving between speaker and receiver.
+On a phone in a pocket these fire many times an hour and each one silently cost
+the keep-alive. Now observed, and ONLY the keep-alive is restarted:
+it is idempotent and background-safe, and the mic rebuild stays where it was, so
+there is nothing for this notification to loop with. (AVAudioEngineConfiguration-
+Change is still deliberately not observed, for the reason given in 0.1.22.)
+
+**The worst one: the app destroyed its own residency on a dead mic.**
+`beginCapture` falls back to `resync()` when the engine is not live. That call
+had no foreground guard, and the keyboard triggers it FROM THE BACKGROUND.
+`resync` then ran `teardownForRewarm()`, which calls `stopEverything()` and
+stops the silent player, and then `warmUp()` — which iOS refuses in the
+background. Net effect of one dead mic engine: keep-alive stopped, warm-up
+refused, process suspended seconds later, and the next tap says "Open the
+Dictator app to wake it". A mic problem was being upgraded into an app-is-gone
+problem, every time. `resync` now refuses to tear down while backgrounded; it
+protects the keep-alive and defers the rebuild to the next foreground, which
+already calls it.
+
+**Honest failure instead of a two-second guess.** When the mic is dead and we
+are backgrounded, the tap is not going to record however long anyone waits, so
+the app now says "Open Dictator once to restart the mic" immediately rather than
+leaving the pill on "Starting" until it times out and blames the whole app. The
+keyboard also cancels an in-flight capture wait when a result arrives; that
+timer used to fire anyway a couple of seconds later and overwrite the result it
+had just shown.
+
+**The idle window is now a setting, defaulting to 30 minutes.** This is the one
+honest trade in the product and it deserved to be visible rather than a
+constant. iOS will not reopen the microphone from the background, so once
+Dictator lets go, the next dictation costs a trip to the app and a manual swipe
+back. Five minutes put that trip in the middle of ordinary use. Choices are 5
+minutes, 30 minutes, 2 hours, and Never, with copy that says what each one
+costs.
+
+**On returning to the app you came from, since it keeps coming up.** There is no
+API, public or private, to trigger the back swipe, and none to return to "the
+last app" without naming it. Apple's DTS confirmed both on forum thread 826851:
+no public way to identify the host, no public "return to source app". What
+shipping keyboards do instead is swizzle `+enabled` on `_UIKeyboardArbiterClient`
+to read `sourceBundleIdentifier` and `_hostProcessIdentifier`, keep a
+pid-to-bundle table because the arbiter reads stale about a quarter of the time,
+and then open the host by a curated URL-scheme catalogue
+(getdictus/dictus-ios PR #538, whose own description says "This ships private
+API, including one swizzle"). The supported path is the system back breadcrumb,
+which is one tap and needs no host knowledge. Apple's suggested enhancement,
+`UIApplication.returnToOpeningApplication(completion:)`, is FB24235692 and does
+not exist yet. So the fix is not to make the round trip nicer; it is to stop
+needing it, which is what everything above is for.
+
 ### 0.1.47 — audit pass: the polish bugs, not the crash bugs (2026-09-16)
 
 The last ten releases each chased one reported failure. This one is a read of

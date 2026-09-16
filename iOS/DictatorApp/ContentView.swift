@@ -89,6 +89,7 @@ struct ContentView: View {
                     }
                     statusCard
                     turnButton
+                    micHoldSection
                     modeSection
                     vocabularySection
                     lastDictationSection
@@ -119,6 +120,7 @@ struct ContentView: View {
         }
         .task {
             selectedMode = DictationMode.current
+            idleMinutes = SharedStore.idleReleaseMinutes
             refreshChecklist()
             dictionary.reload()
             if SharedStore.onboardingDone {
@@ -295,6 +297,46 @@ struct ContentView: View {
             }
             .buttonStyle(.bordered)
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: - How long to hold the microphone
+
+    @State private var idleMinutes = SharedStore.idleReleaseMinutes
+
+    /// The one honest trade in the product, made visible.
+    ///
+    /// iOS will not let the microphone be reopened from the background, so once
+    /// Dictator lets it go, the next dictation costs a trip to this app and a
+    /// swipe back. A short window means less orange dot and more trips; a long
+    /// one means the reverse. Five minutes was hard-coded, which put that trip
+    /// in the middle of ordinary use with no way to say "stop doing that".
+    private var micHoldSection: some View {
+        section("Keep the microphone ready") {
+            Picker("Release after", selection: $idleMinutes) {
+                Text("5 minutes").tag(5)
+                Text("30 minutes").tag(30)
+                Text("2 hours").tag(120)
+                Text("Never").tag(0)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: idleMinutes) { _, new in SharedStore.idleReleaseMinutes = new }
+            Text(idleBlurb)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var idleBlurb: String {
+        switch idleMinutes {
+        case 0:
+            return "Dictator holds the microphone until you turn it off. The orange dot stays on, and the keyboard always dictates in place."
+        case 1..<30:
+            return "After 5 minutes without dictating, Dictator closes the microphone. Waking it again means opening this app and swiping back, so pick a longer window if that happens often."
+        default:
+            let label = idleMinutes >= 60 ? "\(idleMinutes / 60) hours" : "\(idleMinutes) minutes"
+            return "After \(label) without dictating, Dictator closes the microphone. Waking it again means opening this app and swiping back."
         }
     }
 

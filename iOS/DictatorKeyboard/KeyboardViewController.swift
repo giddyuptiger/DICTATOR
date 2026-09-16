@@ -602,6 +602,11 @@ final class KeyboardViewController: UIInputViewController {
         guard token != lastSeenToken else { return }
         lastSeenToken = token
         cancelResultWatch()
+        // Also cancel an in-flight capture/wake wait. A result arriving while
+        // waitForCapture was still polling left that timer running, so a couple
+        // of seconds later it fired anyway and overwrote the result we had just
+        // shown with "Open the Dictator app to wake it".
+        cancelWait()
 
         if let err = SharedStore.lastError {
             if SharedStore.lastErrorRetryable {
