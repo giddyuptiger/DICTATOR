@@ -379,6 +379,28 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.44 — stop dictating into a dead mic (the activity-log smoking gun) (2026-09-16)
+
+The device activity log showed the real "stops mid-dictation" failure: an audio
+interruption stopped the mic engine, the user kept talking for ~30 s, then got
+"captured 0.0s → Didn't catch that". The engine cannot resume mid-capture, and
+nothing was watching for it dying DURING a capture.
+
+Two fixes in BackgroundRecorder:
+- Heartbeat now checks the engine while .capturing, not only while .warm. If the
+  mic dies mid-capture it ends the capture within one 2 s tick (the keyboard
+  follows to a result and unsticks) and rebuilds, instead of recording 30 s of
+  silence.
+- beginCapture refuses to start on a dead engine (audio.isRunning == false):
+  it rebuilds instead, so a re-tap a moment later records for real rather than
+  yielding 0.0 s. This also covers "tap to wake → dictate immediately → nothing"
+  (engine still rebuilding).
+
+Note: the frequent engine deaths themselves are audio interruptions + the app
+being suspended; the crash fix (0.1.42) and session-leak fix (0.1.43) remove the
+biggest churn sources. These two changes make what remains recover fast instead
+of eating a whole dictation.
+
 ### 0.1.43 — fix "getting slower and slower": one persistent Groq session (2026-09-16)
 
 Device report: transcription "taking longer and longer," 5 s for half a

@@ -680,6 +680,21 @@ public final class BackgroundRecorder: ObservableObject {
         let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.state != .cold else { return }
+                // The mic died WHILE CAPTURING (an audio interruption stopped the
+                // engine and it cannot resume mid-capture). Without this the user
+                // talks into a dead microphone for the whole dictation and gets
+                // "Didn't catch that" 30 seconds later — the exact failure in the
+                // activity log. Catch it within one 2 s tick: end the doomed
+                // capture (the keyboard follows to a result and unsticks), then
+                // rebuild the engine so the retry works.
+                if self.state == .capturing, !self.audio.isRunning {
+                    self.log("heartbeat: mic died mid-capture; ending and rebuilding")
+                    self.endCapture()
+                    if self.state == .warm, !self.audio.isRunning, self.isForeground {
+                        Task { await self.resync() }
+                    }
+                    return
+                }
                 // Health check: if we think we are warm but the engine has died,
                 // rebuild — but only while foregrounded, and `resync` is rate-
                 // limited so a flapping engine can never turn this 2 s tick into a
@@ -770,6 +785,15 @@ public final class BackgroundRecorder: ObservableObject {
     public func beginCapture() {
         guard state == .warm else {
             log("start ignored, state \(state)")
+            return
+        }
+        // Never record into a dead mic. If the engine isn't actually live (an
+        // interruption killed it, or a rebuild is mid-flight), capturing now
+        // yields 0.0s of nothing. Rebuild instead; a re-tap a second later, once
+        // the engine is back, records for real.
+        guard audio.isRunning else {
+            log("start: mic not live; rebuilding instead of capturing")
+            Task { await resync() }
             return
         }
         // The mic is already running from warm-up. Capture starts no IO; it
