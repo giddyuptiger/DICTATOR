@@ -382,6 +382,21 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.50 — typing still laggy/drops keys: strip the keypress hot path (2026-09-16)
+
+Touch-down insertion (0.1.41) fixed WHICH event inserts, but typing is still
+laggy and drops letters on device — the symptom of the MAIN THREAD stalling
+(iOS coalesces/drops touches while the main thread is busy). Two things ran on
+every keypress and were removed from keyDown/keyUp:
+- playInputClick(): the click sound routes through the audio system, which in
+  THIS app is busy holding the always-on mic session — a per-keystroke stall a
+  normal keyboard never has. Removed from every typing action.
+- showPreview()/hidePreview(): a full convert + frame + bringSubviewToFront
+  layout pass per press. No longer called (the pressed-colour is the feedback).
+keyDown is now just insertText + press colour. If typing is STILL laggy after
+this, the cause is systemic (keyboard-extension memory pressure, or the
+container app churning/crashing loading the device) rather than the hot path.
+
 ### 0.1.49 — Expressive: about half as many exclamation points (2026-09-16)
 
 User: a dictated paragraph came back with three exclamation points and one

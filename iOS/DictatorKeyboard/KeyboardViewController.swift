@@ -1091,20 +1091,24 @@ final class KeyboardViewController: UIInputViewController {
     // MARK: - Typing actions
 
     @objc private func keyDown(_ sender: UIButton) {
-        // The actual insertion, on touch-down, so fast typing never drops a key.
+        // KEEP THIS PATH MINIMAL. It runs on every keypress, and any main-thread
+        // work here shows up as typing lag and — when the thread stalls — dropped
+        // keys (iOS coalesces touches while the main thread is busy). So: insert
+        // the character, flip the press colour, and nothing else. Deliberately
+        // NOT here: playInputClick() (its sound routes through the audio system,
+        // which in this app is busy holding the always-on mic session — a
+        // per-keystroke stall a normal keyboard never has) and showPreview() (a
+        // full convert/frame/bringSubviewToFront layout pass per press).
         if let t = sender.title(for: .normal) {
             textDocumentProxy.insertText(t)
-            UIDevice.current.playInputClick()
             if shift == .once { shift = .off }
         }
         lastKeyTime = Date()
         sender.backgroundColor = palette.keyPressed
-        showPreview(for: sender)
     }
 
     @objc private func keyUp(_ sender: UIButton) {
         sender.backgroundColor = palette.key
-        hidePreview()
     }
 
     @objc private func shiftTapped() {
@@ -1116,19 +1120,13 @@ final class KeyboardViewController: UIInputViewController {
         } else {
             shift = (shift == .off) ? .once : .off
         }
-        lastShiftTap = now
-        UIDevice.current.playInputClick()
-    }
+        lastShiftTap = now    }
 
     @objc private func planeSwitchTapped() {
-        plane = (plane == .letters) ? .numbers : .letters
-        UIDevice.current.playInputClick()
-    }
+        plane = (plane == .letters) ? .numbers : .letters    }
 
     @objc private func planeToggleTapped() {
-        plane = (plane == .numbers) ? .symbols : .numbers
-        UIDevice.current.playInputClick()
-    }
+        plane = (plane == .numbers) ? .symbols : .numbers    }
 
     @objc private func spaceTapped() {
         // Double space becomes ". ", matching the system keyboard.
@@ -1142,14 +1140,10 @@ final class KeyboardViewController: UIInputViewController {
         } else {
             textDocumentProxy.insertText(" ")
         }
-        lastSpaceTap = now
-        UIDevice.current.playInputClick()
-    }
+        lastSpaceTap = now    }
 
     @objc private func returnTapped() {
-        textDocumentProxy.insertText("\n")
-        UIDevice.current.playInputClick()
-    }
+        textDocumentProxy.insertText("\n")    }
 
     /// The return key says what it will do, like the system keyboard does. A
     /// Send field that offers a key labelled "return" is the kind of small wrong
@@ -1174,9 +1168,7 @@ final class KeyboardViewController: UIInputViewController {
     @objc private func deleteDown(_ sender: UIButton) {
         sender.backgroundColor = palette.specialPressed
         // The one deletion a tap performs, on touch-down like every other key.
-        textDocumentProxy.deleteBackward()
-        UIDevice.current.playInputClick()
-        deleteRepeat?.invalidate()
+        textDocumentProxy.deleteBackward()        deleteRepeat?.invalidate()
         deleteTicks = 0
         // Hold to repeat, after a short grace period, then ACCELERATE and switch
         // to whole-word deletion — exactly what the system keyboard does. A flat
