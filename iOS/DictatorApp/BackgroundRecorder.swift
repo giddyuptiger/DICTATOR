@@ -144,10 +144,21 @@ final class AudioEngineHost: @unchecked Sendable {
 
         let session = AVAudioSession.sharedInstance()
         do {
+            // .mixWithOthers is the difference between Dictator being a good
+            // citizen and a menace: a .playAndRecord session normally INTERRUPTS
+            // other audio, so turning Dictator on (or it rebuilding after an
+            // interruption) would pause the user's music/podcast and not resume
+            // it. .mixWithOthers lets our session coexist — their audio keeps
+            // playing the whole time Dictator is warm. The silent keep-alive just
+            // mixes in silently. (Bluetooth HFP is deliberately NOT requested:
+            // it would force AirPods to call-quality mono the whole time and its
+            // route switches were a source of the interruption-driven crash.
+            // Dictation uses the phone mic, so music through AirPods stays
+            // full quality.)
             try session.setCategory(
                 .playAndRecord,
                 mode: .default,
-                options: [.defaultToSpeaker, .allowBluetoothHFP]
+                options: [.defaultToSpeaker, .mixWithOthers]
             )
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {

@@ -382,6 +382,20 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.55 — don't fight the user's music (mix, drop Bluetooth HFP) (2026-09-16)
+
+The always-on .playAndRecord session was hostile to other audio:
+- Without .mixWithOthers, activating (or rebuilding) the session INTERRUPTS other
+  audio — it paused the user's music/podcast and never resumed it. Added
+  .mixWithOthers so our session coexists; their audio plays the whole time
+  Dictator is warm, and the silent keep-alive just mixes in silently.
+- Dropped .allowBluetoothHFP. It forced AirPods to call-quality mono (HFP) the
+  entire time Dictator was on — so music through AirPods went tinny — and its
+  route switches were a source of the interruption-driven tap crash (0.1.54).
+  Dictation now uses the phone mic; AirPods stay in full-quality A2DP for music.
+  TRADE-OFF surfaced to the user: no Bluetooth-mic dictation (phone mic instead);
+  revisit as a setting if wanted.
+
 ### 0.1.54 — THE crash fix: install the mic tap with nil format (2026-09-16)
 
 Device CRASH log (build 55) finally pinned it:
