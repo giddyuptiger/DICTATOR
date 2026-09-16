@@ -133,12 +133,10 @@ public struct GroqCleanup: CleanupProvider {
     public init(apiKey: String, models: [String] = GroqCleanup.defaultModels) {
         self.apiKey = apiKey
         self.models = models
-        let config = URLSessionConfiguration.ephemeral
-        // 8s was too tight: a bigger model on a longer message can run past it,
-        // the request times out, and cleanup silently degrades to raw (no mode,
-        // no emoji). 15s keeps the whole pipeline under the transcription timeout.
-        config.timeoutIntervalForRequest = 15
-        self.session = URLSession(configuration: config)
+        // Reuse the one persistent Groq session (see GroqHTTP): no per-dictation
+        // session leak, and the connection stays warm from the transcription call
+        // that just happened. The 15 s cleanup bound is applied per-request below.
+        self.session = GroqHTTP.shared
     }
 
     public func clean(_ raw: String, system: String) async throws -> String {
@@ -170,6 +168,7 @@ public struct GroqCleanup: CleanupProvider {
     private func request(model: String, raw: String, system: String) async throws -> String {
         var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/chat/completions")!)
         request.httpMethod = "POST"
+        request.timeoutInterval = 15   // per-request bound (the shared session's default is longer)
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 

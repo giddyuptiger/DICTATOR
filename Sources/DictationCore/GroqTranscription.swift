@@ -10,6 +10,27 @@ import Foundation
 ///     the highest-leverage line in the file.
 ///  2. Silence is trimmed client side, which cuts upload time and stops Whisper
 ///     inventing words out of room tone.
+/// ONE persistent URLSession for every Groq call, for the whole app lifetime.
+///
+/// Before this, GroqTranscription and GroqCleanup each built a fresh
+/// URLSession on every dictation and never invalidated it. Un-invalidated
+/// sessions retain themselves (plus their connection pool and worker threads),
+/// so they PILED UP over a session and the whole pipeline got slower and
+/// slower — "something's getting worse." A single shared session fixes the leak
+/// AND keeps the TLS connection to api.groq.com warm between the transcribe and
+/// cleanup calls (both hit the same host), which is a real latency win on a weak
+/// connection where a fresh handshake costs a second or more. Per-request
+/// timeouts still apply, so this does not change how long any one call waits.
+enum GroqHTTP {
+    static let shared: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 30
+        config.waitsForConnectivity = false
+        config.httpMaximumConnectionsPerHost = 2
+        return URLSession(configuration: config)
+    }()
+}
+
 public struct GroqTranscription: SpeechProvider {
 
     public enum GroqError: Error, LocalizedError {
@@ -47,11 +68,7 @@ public struct GroqTranscription: SpeechProvider {
         self.apiKey = apiKey
         self.model = model
         self.biasTerms = biasTerms
-
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 20
-        config.waitsForConnectivity = false
-        self.session = URLSession(configuration: config)
+        self.session = GroqHTTP.shared
     }
 
     /// Cheap check that a key works, for onboarding. One GET to the models

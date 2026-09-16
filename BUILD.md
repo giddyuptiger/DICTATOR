@@ -379,6 +379,28 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.43 — fix "getting slower and slower": one persistent Groq session (2026-09-16)
+
+Device report: transcription "taking longer and longer," 5 s for half a
+sentence, "something's getting worse." Root cause: GroqTranscription and
+GroqCleanup each built a fresh URLSession on EVERY dictation and never
+invalidated it. Un-invalidated sessions retain themselves plus their connection
+pool and worker threads, so they accumulated over a session and dragged the
+whole pipeline down — a leak that compounds exactly as "getting worse."
+
+Fix: one shared, persistent URLSession (GroqHTTP.shared) for the app's lifetime,
+used by both providers. Two wins: (1) no more per-dictation session leak; (2) the
+TLS connection to api.groq.com stays warm between the transcribe and cleanup
+calls (same host) and across dictations, saving a handshake each time — a real
+latency cut on a weak connection. Per-request timeouts unchanged (transcription
+scales with duration; cleanup pinned to 15 s per request).
+
+Note on "tap to wake every minute" and "doesn't switch back": both are the app
+not staying resident, and the biggest cause was the crash fixed in 0.1.42 (a
+crashed app is a dead app -> tap to wake). Auto-return to the previous app is not
+possible on iOS 26.4 (even Wispr lost it), so the fix is residency: when the app
+stays alive the keyboard records in the background and you never leave your app.
+
 ### 0.1.42 — fix the app crash: serialize AVAudioEngine on one queue (2026-09-16)
 
 Device report: the CONTAINER APP crashes ("Dictator: Voice to Text Crashed"),
