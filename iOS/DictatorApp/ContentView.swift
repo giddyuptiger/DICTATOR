@@ -182,7 +182,7 @@ struct ContentView: View {
                 .font(.title2)
                 .foregroundStyle(Self.pastelGreen)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Dictator is ready")
+                Text("Head back to your app")
                     .font(.headline)
                 Text("Tap ‹ back at the top-left to return to your app, then tap the mic. You only have to do this once — Dictator now stays ready in the background.")
                     .font(.caption)

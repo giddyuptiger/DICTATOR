@@ -382,6 +382,20 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.51 — fix wake pill "flickers, does nothing" + duplicate "ready" (2026-09-16)
+
+Two device reports:
+- The wake pill flickered and did nothing when tapped, but worked after leaving
+  and re-entering the app. Cause: the 0.1.46 "accidental brush" guard ignored a
+  pill tap within 1.2 s of a keystroke — and the user types, THEN taps to wake, so
+  the real wake tap got swallowed. Leaving/returning reset the typing timer, which
+  is why it then worked. Removed the guard: coldStart only ever runs from a
+  deliberate pill tap and nothing auto-opens the app, so the guard protected
+  against a rare brush at the cost of the pill not working. Act on every tap.
+- Two "Dictator is ready" sections showed at once (the post-wake banner and the
+  status card). Renamed the banner headline to "Head back to your app" so it
+  states its actual job instead of duplicating the status card.
+
 ### 0.1.50 — typing still laggy/drops keys: strip the keypress hot path (2026-09-16)
 
 Touch-down insertion (0.1.41) fixed WHICH event inserts, but typing is still

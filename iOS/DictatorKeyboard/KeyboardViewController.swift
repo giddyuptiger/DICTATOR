@@ -333,18 +333,17 @@ final class KeyboardViewController: UIInputViewController {
     // MARK: - Actions
 
     @objc private func micTapped() {
-        // Launching the container app is disruptive (it takes over the screen), so
-        // never do it as a side effect of typing. If the user typed a character in
-        // the last moment, treat this as an accidental brush of the pill and
-        // ignore it. Recording (.ready) and stopping are unaffected.
-        let typingNow = Date().timeIntervalSince(lastKeyTime) < 1.2
+        // A tap on the pill is always deliberate — it is a separate row above the
+        // keys and coldStart() only ever runs from here (nothing auto-opens the
+        // app). An earlier build tried to suppress "accidental brushes" by ignoring
+        // a pill tap within 1.2 s of a keystroke, but that swallowed real wake taps
+        // right after typing (the pill "just flickered"), which is worse. So act on
+        // every tap.
         switch mode {
         case .needsFullAccess, .needsKey:
             // Both are fixed in the app. Try to open it so the user is not stuck.
-            if typingNow { return }
             coldStart()
         case .needsSession:
-            if typingNow { return }
             coldStart()
         case .ready:
             startRecording()
