@@ -285,11 +285,18 @@ final class KeyboardViewController: UIInputViewController {
     // MARK: - Actions
 
     @objc private func micTapped() {
+        // Launching the container app is disruptive (it takes over the screen), so
+        // never do it as a side effect of typing. If the user typed a character in
+        // the last moment, treat this as an accidental brush of the pill and
+        // ignore it. Recording (.ready) and stopping are unaffected.
+        let typingNow = Date().timeIntervalSince(lastKeyTime) < 1.2
         switch mode {
         case .needsFullAccess, .needsKey:
             // Both are fixed in the app. Try to open it so the user is not stuck.
+            if typingNow { return }
             coldStart()
         case .needsSession:
+            if typingNow { return }
             coldStart()
         case .ready:
             startRecording()
@@ -759,6 +766,10 @@ final class KeyboardViewController: UIInputViewController {
     private var shift: Shift = .once   { didSet { refreshCaps() } }
     private var lastShiftTap = Date.distantPast
     private var lastSpaceTap = Date.distantPast
+    /// When the user last typed a character. A mic-pill tap that lands within a
+    /// moment of typing is treated as an accidental brush and is ignored for the
+    /// app-launch cases, so typing can never bounce you into the Dictator app.
+    private var lastKeyTime = Date.distantPast
     private var deleteRepeat: Timer?
     private var deleteTicks = 0
     private var letterKeys: [UIButton] = []
@@ -973,6 +984,7 @@ final class KeyboardViewController: UIInputViewController {
             UIDevice.current.playInputClick()
             if shift == .once { shift = .off }
         }
+        lastKeyTime = Date()
         sender.backgroundColor = palette.keyPressed
         showPreview(for: sender)
     }

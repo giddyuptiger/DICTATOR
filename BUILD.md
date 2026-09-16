@@ -379,6 +379,23 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.46 — never launch the app from an accidental pill brush while typing (2026-09-16)
+
+User reported the keyboard "interrupted me to restart the app while I'm typing."
+In current code coldStart() only fires from a deliberate micTapped, and the
+garbled report text ("whattyPng", "torestart") shows the reporter is on a
+pre-0.1.41 build (before touch-down typing and before the auto-coldStart removal
+in waitForCapture) — i.e. all recent fixes are simply not on the device yet.
+
+Added a belt-and-suspenders guard anyway: micTapped records lastKeyTime on every
+keystroke and ignores the app-launch cases (.needsSession / .needsFullAccess /
+.needsKey) if a character was typed in the last 1.2 s. So even an accidental
+brush of the pill mid-typing can't take over the screen. Recording start/stop is
+unaffected.
+
+DELIVERY: the reporter keeps hitting already-fixed bugs, so the priority is
+confirming TestFlight is actually delivering new builds (0.1.4x) to the device.
+
 ### 0.1.45 — idle auto-off: stop holding the mic (orange dot) open all day (2026-09-16)
 
 User: "the mic just keeps being on randomly when it really doesn't need to be,
