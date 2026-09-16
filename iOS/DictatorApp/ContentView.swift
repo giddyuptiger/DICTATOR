@@ -15,6 +15,7 @@ struct DictatorApp: App {
                 .environmentObject(recorder)
                 .environmentObject(dictionary)
                 .task {
+                    installCrashLogger()
                     seedAPIKeyIfNeeded()
                     // Warm-up is triggered from ContentView once onboarding is
                     // done, so the mic prompt does not fire over the onboarding's
@@ -44,6 +45,22 @@ struct DictatorApp: App {
         guard (SharedStore.groqAPIKey ?? "").isEmpty else { return }
         guard !BuildSecrets.groqAPIKey.isEmpty else { return }
         SharedStore.groqAPIKey = BuildSecrets.groqAPIKey
+    }
+}
+
+/// Record the reason for any uncaught Objective-C exception into the shared
+/// activity log before the app dies, so a crash is diagnosable from Details →
+/// Report a problem instead of guessed at. This catches the AVAudioEngine family
+/// of crashes ("required condition is false: …"), which are NSExceptions. (Pure
+/// Swift traps / signals are not catchable this way, but the audio crashes we
+/// care about are.) The closure captures nothing, so it is a valid C handler.
+private func installCrashLogger() {
+    NSSetUncaughtExceptionHandler { exception in
+        let name = exception.name.rawValue
+        let reason = exception.reason ?? "unknown"
+        let frames = exception.callStackSymbols.prefix(6).joined(separator: " | ")
+        SharedStore.appendLog("CRASH \(name): \(reason)")
+        SharedStore.appendLog("CRASH stack: \(frames)")
     }
 }
 

@@ -99,11 +99,26 @@ final class AudioEngineHost: @unchecked Sendable {
     private var silenceRunning = false
     private let lock = NSLock()
 
+    /// EVERY AVAudioEngine mutation runs on this one serial queue. AVAudioEngine
+    /// is NOT thread-safe: touching it (attach/connect/installTap/removeTap/start/
+    /// stop, and the player's schedule/play/stop) from two threads at once is a
+    /// hard crash. Before this, startWarm ran on a background task while
+    /// ensureSilenceAlive ran on the main thread from the interruption handlers,
+    /// and both touched the engines — which is exactly the "crashes after a few
+    /// uses / gets so buggy" crash. Serialising them here removes the race. The
+    /// public methods hop onto this queue; the `_`-prefixed impls assume they are
+    /// already on it and call each other directly (never re-enter the queue).
+    private let engineQ = DispatchQueue(label: "design.irons.dictator.audioengine")
+
     // MARK: - Warm-up (foreground only)
 
     /// Claims the session, starts the input engine (required) and the silent
     /// keep-alive engine (best effort). MUST run foregrounded.
     func startWarm() throws {
+        try engineQ.sync { try _startWarm() }
+    }
+
+    private func _startWarm() throws {
         guard !running else { return }
 
         let session = AVAudioSession.sharedInstance()
@@ -147,10 +162,10 @@ final class AudioEngineHost: @unchecked Sendable {
         // start race. If it still will not start, the mic works cleanly and the
         // app just risks being suspended (and then "Couldn't open Dictator")
         // sooner.
-        do { try startSilence() }
+        do { try _startSilence() }
         catch {
             silenceRunning = false
-            do { try startSilence() } catch { silenceRunning = false }
+            do { try _startSilence() } catch { silenceRunning = false }
         }
     }
 
@@ -161,14 +176,20 @@ final class AudioEngineHost: @unchecked Sendable {
     /// (which cannot restart until the app is foregrounded again). Losing the
     /// keep-alive is exactly what lets iOS suspend the app, after which the
     /// keyboard can no longer wake it — so keeping this playing is the whole game.
+    /// Runs async on the engine queue so it never races the mic engine (that race
+    /// was a crash) and never blocks the caller.
     func ensureSilenceAlive() {
+        engineQ.async { [weak self] in self?._ensureSilenceAlive() }
+    }
+
+    private func _ensureSilenceAlive() {
         guard running else { return }                 // no session to keep alive
         if silenceEngine.isRunning, silence.isPlaying { return }
         silenceRunning = false                        // clear any stale flag
-        do { try startSilence() } catch { silenceRunning = false }
+        do { try _startSilence() } catch { silenceRunning = false }
     }
 
-    private func startSilence() throws {
+    private func _startSilence() throws {
         guard !silenceRunning else { return }
         let rate = AVAudioSession.sharedInstance().sampleRate
         guard let outFormat = AVAudioFormat(
@@ -214,6 +235,10 @@ final class AudioEngineHost: @unchecked Sendable {
 
     /// Full teardown, user-initiated only.
     func stopEverything() {
+        engineQ.sync { _stopEverything() }
+    }
+
+    private func _stopEverything() {
         if silenceRunning {
             if silence.isPlaying { silence.stop() }
             silenceEngine.stop()

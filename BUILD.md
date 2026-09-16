@@ -379,6 +379,28 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.42 — fix the app crash: serialize AVAudioEngine on one queue (2026-09-16)
+
+Device report: the CONTAINER APP crashes ("Dictator: Voice to Text Crashed"),
+intermittently, "gets so buggy." Root cause: AVAudioEngine is NOT thread-safe,
+and we were mutating it from two threads. startWarm() runs on a BACKGROUND task
+(via withWarmUpTimeout), while ensureSilenceAlive() (added 0.1.35) runs on the
+MAIN thread from the audio-interruption / media-reset observers. When an
+interruption fired during a warm-up (or resync churned), both touched the input
+and silence engines at once → hard crash. This matches "crashes after a few
+uses".
+
+Fix: a single serial DispatchQueue (engineQ) now owns EVERY engine mutation.
+Public startWarm/stopEverything/ensureSilenceAlive hop onto it (sync for the
+first two, async for the keep-alive so it never blocks); `_`-prefixed impls do
+the work and call each other directly without re-entering the queue (no
+deadlock). Engine operations can no longer overlap.
+
+Also added a crash logger: NSSetUncaughtExceptionHandler writes the exception
+name + reason + top stack frames to the shared activity log before the app dies,
+so any future crash is readable in Details → Report a problem instead of guessed
+at. Catches the AVAudioEngine "required condition is false" family (NSExceptions).
+
 ### 0.1.41 — fix dropped/garbled fast typing + stop surprise app-opens (2026-09-16)
 
 Device report: fast typing dropped letters and spaces and merged words
