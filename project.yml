@@ -33,7 +33,7 @@ settings:
     # Ratchet this on EVERY push. Xcode Cloud supplies the build number, but the
     # version is what TestFlight shows first, and a static one makes every
     # build look the same. 0.1.x until the first App Store release.
-    MARKETING_VERSION: "0.1.46"
+    MARKETING_VERSION: "0.1.47"
     CURRENT_PROJECT_VERSION: "1"
     # Set this to your Apple Developer Team ID, or pick the team in Xcode once.
     DEVELOPMENT_TEAM: W9K8HB89TY
@@ -48,7 +48,6 @@ targets:
     platform: macOS
     sources:
       - path: Sources/DictationCore
-        excludes: ["Transcriber.swift"]
       - path: macOS
     dependencies:
       - package: FluidAudio
@@ -68,7 +67,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources/DictationCore
-        excludes: ["Transcriber.swift", "LocalParakeet.swift"]
+        excludes: ["LocalParakeet.swift"]
       - path: iOS/DictatorApp
     dependencies:
       - target: DictatorKeyboard
@@ -96,7 +95,6 @@ targets:
       # a build-enforced fact rather than a thing we have to remember.
       - path: Sources/DictationCore
         excludes:
-          - "Transcriber.swift"
           - "LocalParakeet.swift"
           - "AudioRecorder.swift"
           - "DictationSession.swift"

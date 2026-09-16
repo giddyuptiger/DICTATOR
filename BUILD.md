@@ -275,6 +275,7 @@ Treat it as unverified until the probe says otherwise.
 
 ```
 Package.swift                     SPM, depends on FluidAudio
+Tests/DictationCoreTests/         unit tests for the pure-logic core
 Sources/DictationCore/
   SpeechProvider.swift            protocol + WAV encoder + silence trimming
   LocalParakeet.swift             Mac, on-device, via FluidAudio
@@ -297,8 +298,10 @@ project.yml                       XcodeGen spec for the real project
 setup.sh                          generates both projects
 ```
 
-`Sources/DictationCore/Transcriber.swift` is a tombstone from an earlier pass.
-Delete it.
+`Tests/DictationCoreTests/` covers the pure-logic half of the pipeline: the WAV
+container, silence trimming, the personal dictionary, tone selection, and every
+cleanup fallback. No microphone, no network, no App Group. Run it with
+`swift test`.
 
 ---
 
@@ -378,6 +381,104 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
+
+### 0.1.47 — audit pass: the polish bugs, not the crash bugs (2026-09-16)
+
+The last ten releases each chased one reported failure. This one is a read of
+the whole codebase looking for what was still wrong, including the quiet things
+nobody files a bug about. Sixteen fixes, no behaviour removed.
+
+**Text that came out wrong**
+
+- **A stray newline after every cleaned dictation.** `Cleaner` trimmed the
+  model's reply, tested the trimmed copy for a refusal, then inserted the
+  UNTRIMMED original. Models end a reply with a newline as a matter of course,
+  so in a chat box the caret dropped to a new line, and in some apps that sends
+  the message. One word changed; it is the highest-impact fix here.
+- **Undo left a space behind.** `insert` added a leading space as a SEPARATE
+  `insertText` call and then told undo about the transcript only, so undo always
+  deleted one character too few. `insert` now returns exactly what it inserted,
+  in one call, and undo deletes that.
+- **Holding backspace deleted one character too many.** The delete key fired on
+  touch-down (the repeat) AND on touchUpInside, so lifting off after a hold cost
+  an extra character. Delete is touch-down only now, like every other key.
+- **Shift ignored the caret.** Nothing re-read the document context, so shift
+  was whatever the last keystroke left it as: a capital offered mid-word, and no
+  capital after a full stop. `textDidChange` now tracks it, requiring the
+  terminal punctuation to be followed by a space so "hello.com" is left alone.
+
+**Messages you could not read**
+
+- **Transient errors never cleared.** `render()` only runs on a mode CHANGE, so
+  "Nothing heard" set while the mode was already `.ready` stayed on the pill
+  indefinitely under a blue Tap-to-talk. Worse, "Still working. Open Dictator to
+  check." was set BEFORE a mode assignment and was wiped by that mode's render
+  before anyone saw it. Both go through `flash()` now, which shows a message,
+  announces it to VoiceOver, and restores the real state after a few seconds.
+- The status label holds two lines instead of shrinking the honest failure copy
+  to 70% on one.
+
+**Things that were unreachable**
+
+- **First-run Settings never opened on the Mac.** `AppDelegate.openSettings()`
+  used `NSApp.sendAction(Selector(("showSettingsWindow:")))`, which does nothing
+  in an LSUIElement app on macOS 14+ — the menu's own copy had already been
+  fixed and left a comment saying so. Settings now opens through
+  `@Environment(\.openSettings)` on the menu bar label, which is the one view
+  that is always on screen.
+- **A denied microphone killed the Mac hotkey permanently.** `bootstrap()`
+  returned early, so no hotkey, no model, and no way to reach the screen that
+  explains the fix. It now continues, watches for the grant, and corrects its
+  own status line when you come back from System Settings.
+- **Re-entering setup showed an empty Groq key field** with Next hidden, as
+  though no key had ever been saved. It shows the saved one.
+- Onboarding walked you to "Try it" after you tapped Don't Allow on the
+  microphone. It stops and offers Settings.
+
+**Races and leaks**
+
+- **The listening indicator could hide itself right after showing.** `hide()`'s
+  fade completion ordered the panel out unconditionally; dictating again inside
+  that 0.18 s left you recording with no indicator. (`hideWorkItem` was meant to
+  guard this and was never assigned anywhere.) A generation counter does it.
+- **Two event taps, one keypress.** `startHotkey()` replaced `hotkey` without
+  stopping the old monitor, and both `bootstrap()` and the Accessibility watcher
+  can reach it.
+- **The engine's `running` flag was read across threads with no lock** — written
+  on the engine queue, read from the main actor by the very health check that
+  exists to notice the engine dying. Now guarded by the lock the rest of that
+  state already used.
+- **`validateKey` leaked a URLSession per call**, the same leak fixed everywhere
+  else in 0.1.43, on a path onboarding hits repeatedly.
+- **An iCloud write per dictation.** `transcribe` called `mergeFromCloud()`,
+  which re-encoded the dictionary and pushed it to the key-value store every
+  time, on the latency path, for no change. It saves only on a real change, and
+  the dictation path uses the cheap `load()`.
+- **A Task per audio buffer on the Mac.** The tap hopped every 20 ms of audio
+  onto the actor to append to an array. Samples land in a lock-guarded box now.
+  (The iOS recorder fixed the same shape in 0.1.39.)
+
+**Build and release**
+
+- **The keyboard's version did not match the app's.** It was pinned to 1.0 (1)
+  while the app shipped 0.1.46 with a build number from Xcode Cloud. App Store
+  validation rejects that outright; it now uses the same build settings.
+- **`swift build` and `swift test` failed on a fresh clone**: Package.swift has
+  always declared a `DictationCoreTests` target and the directory did not exist.
+  It exists now, with real tests for the WAV writer, silence trimming, the
+  dictionary, tone selection, and every cleanup fallback — including one that
+  fails if the trailing-newline bug above ever comes back.
+- **A fresh clone did not compile at all**: `Secrets.swift` is gitignored and
+  nothing created it, so `BuildSecrets` was undefined with no hint as to why.
+  `setup.sh` seeds it.
+- Deleted `Transcriber.swift`, a tombstone whose own comment said to delete it,
+  and the unused Accessibility text-insert path whose doc comment described
+  behaviour the app stopped having.
+
+**Not changed, deliberately.** `SharedStore` still rebuilds its `UserDefaults`
+on every access. Caching it is the obvious optimisation and it is the one place
+where a stale App Group read breaks the entire keyboard-to-app handshake, which
+cannot be verified from here. The container lookup is cheaper than that risk.
 
 ### 0.1.46 — never launch the app from an accidental pill brush while typing (2026-09-16)
 

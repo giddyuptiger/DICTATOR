@@ -93,6 +93,15 @@ struct OnboardingView: View {
 
             nextRow(enabled: keyOK, laterAdvances: true)
         }
+        .onAppear {
+            // Re-entering setup from the home-screen checklist landed on an empty
+            // field with Next hidden, as though no key had ever been saved — so
+            // the only way forward was "Do this later". Show what is stored.
+            guard key.isEmpty, let saved = SharedStore.groqAPIKey, !saved.isEmpty else { return }
+            key = saved
+            keyOK = true
+            keyMessage = "Key already saved"
+        }
     }
 
     private func validateKey() {
@@ -154,6 +163,7 @@ struct OnboardingView: View {
     // MARK: - Step 4: microphone
 
     @State private var micAsked = false
+    @State private var micGranted = false
 
     private var micStep: some View {
         step(
@@ -162,11 +172,31 @@ struct OnboardingView: View {
         ) {
             Button("Allow the microphone") {
                 Task {
-                    _ = await AVAudioApplication.requestRecordPermission()
-                    await MainActor.run { micAsked = true; step = 5 }
+                    let granted = await AVAudioApplication.requestRecordPermission()
+                    await MainActor.run {
+                        micAsked = true
+                        micGranted = granted
+                        // Only move on if it was actually granted. Walking the
+                        // user to "Try it" after they tapped Don't Allow sets
+                        // them up to watch a mic button do nothing.
+                        if granted { step = 5 }
+                    }
                 }
             }
             .buttonStyle(.borderedProminent)
+
+            if micAsked && !micGranted {
+                Text("Dictator can't hear you yet. Open Settings › Dictator and turn the microphone on, then come back.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                .font(.caption)
+            }
 
             nextRow(enabled: true, laterAdvances: true)
         }

@@ -146,7 +146,17 @@ struct ContentView: View {
                 if SharedStore.onboardingDone {
                     Task { await recorder.resync() }
                 }
-            case .background, .inactive:
+            case .inactive:
+                // NOT "we have left". .inactive fires for a notification banner,
+                // a pull-down of Control Centre, the app switcher, and the system
+                // permission alert — all of which happen while we are still on
+                // screen. Treating that as backgrounded stopped the health check
+                // from rebuilding a dead engine (it only rebuilds in the
+                // foreground), so an interruption during a normal session left
+                // the mic dead until the user force-quit. Only .background means
+                // the user has actually left.
+                break
+            case .background:
                 recorder.isForeground = false
                 // The user has left (the whole point of the wake banner), so the
                 // one-time "you're ready, go back" prompt has done its job.

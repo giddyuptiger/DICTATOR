@@ -118,14 +118,22 @@ public struct PersonalDictionary: Codable, Sendable {
     }
 
     /// Pull anything another device added.
+    ///
+    /// Writes ONLY when the merge actually changed something. This used to save
+    /// unconditionally, and `transcribe` calls it once per dictation — so every
+    /// single dictation re-encoded the dictionary, wrote it to the App Group AND
+    /// pushed it to the iCloud key-value store, on the latency path, for no
+    /// change at all. iCloud throttles writes per-app, so the busiest user got
+    /// throttled hardest.
     public static func mergeFromCloud() -> PersonalDictionary {
         var local = load()
         guard let data = NSUbiquitousKeyValueStore.default.data(forKey: storageKey),
               let remote = try? JSONDecoder().decode(PersonalDictionary.self, from: data)
         else { return local }
 
+        let before = local.entries
         for entry in remote.entries { local.add(entry) }
-        local.save()
+        if local.entries != before { local.save() }
         return local
     }
 }

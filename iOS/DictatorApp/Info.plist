@@ -21,16 +21,16 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>The Dictator keyboard listens while you dictate.</string>
 
-	<!-- THE capability that keeps audio IO alive after the user leaves this app.
-	     Without it the keyboard cannot trigger a recording without a bounce. -->
-	<!-- Saves answering the export-compliance question on every single upload.
-	     Accurate here: the app uses only HTTPS, which is exempt. -->
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
 
+	<!-- Saves answering the export-compliance question on every single upload.
+	     Accurate here: the app uses only HTTPS, which is exempt. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 
+	<!-- THE capability that keeps audio IO alive after the user leaves this app.
+	     Without it the keyboard cannot trigger a recording without a bounce. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

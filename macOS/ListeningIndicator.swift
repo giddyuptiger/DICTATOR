@@ -13,12 +13,19 @@ final class ListeningIndicator {
 
     private var panel: NSPanel?
     private let waveform = WaveformView()
-    private var hideWorkItem: DispatchWorkItem?
+
+    /// Bumped on every show. The fade-out completion checks it before ordering
+    /// the panel out, because the two fades overlap: dictate, release, and start
+    /// again inside the 0.18 s hide animation, and the completion for the OLD
+    /// hide would order the panel out from under the NEW recording — leaving you
+    /// dictating with no visible indicator. (The dead `hideWorkItem` this
+    /// replaces was cancelled in one place and never actually set anywhere.)
+    private var showGeneration = 0
 
     // MARK: - Public API
 
     func showListening() {
-        hideWorkItem?.cancel()
+        showGeneration &+= 1
         ensurePanel()
         reposition()
         waveform.mode = .listening
@@ -39,9 +46,11 @@ final class ListeningIndicator {
 
     func hide() {
         guard let panel else { return }
+        let generation = showGeneration
         fade(to: 0, duration: 0.18) { [weak self] in
+            guard let self, self.showGeneration == generation else { return }
             panel.orderOut(nil)
-            self?.waveform.mode = .idle
+            self.waveform.mode = .idle
         }
     }
 

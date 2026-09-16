@@ -63,6 +63,7 @@ final class KeyboardViewController: UIInputViewController {
     private var coldStartTimer: Timer?
     private var modeWatch: Timer?
     private var resultWatch: Timer?
+    private var messageClear: Timer?
 
     private lazy var micButton   = makeMic()
     private lazy var statusLabel = makeStatus()
@@ -184,6 +185,51 @@ final class KeyboardViewController: UIInputViewController {
         updateHeight()
     }
 
+    /// The host's text changed — by our key, by dictation, or by the user moving
+    /// the caret. Two things have to follow it.
+    ///
+    /// 1. Shift. Nothing re-read the document context, so shift was whatever the
+    ///    last keystroke left it as: tapping into the middle of a word offered a
+    ///    capital, and the letter after a full stop did not. Now it tracks the
+    ///    caret the way the system keyboard does.
+    /// 2. Appearance. A host can put a dark sheet over a light screen and change
+    ///    `keyboardAppearance` without any trait change, which fires no
+    ///    traitCollectionDidChange — so the board stayed in the wrong theme.
+    override func textDidChange(_ textInput: UITextInput?) {
+        super.textDidChange(textInput)
+        syncShiftToContext()
+        if (view.overrideUserInterfaceStyle == .dark) != resolveDark() { applyTheme() }
+    }
+
+    /// Auto-capitalisation, from the caret rather than from memory. Caps lock is
+    /// left alone, and a field that asked for no autocapitalisation gets none.
+    private func syncShiftToContext() {
+        guard plane == .letters, shift != .locked else { return }
+        guard textDocumentProxy.autocapitalizationType != UITextAutocapitalizationType.none else {
+            if shift == .once { shift = .off }
+            return
+        }
+        let wanted: Shift = shouldAutocapitalize(textDocumentProxy.documentContextBeforeInput) ? .once : .off
+        if shift != wanted { shift = wanted }
+    }
+
+    /// A sentence boundary for the SHIFT key, which is stricter than the one used
+    /// when inserting a transcript.
+    ///
+    /// Terminal punctuation alone is not enough: it has to be followed by a space
+    /// or a newline. Capitalising the moment a full stop is typed turns
+    /// "hello.com" into "hello.Com" and "3.5" into "3.5" only by luck.
+    private func shouldAutocapitalize(_ before: String?) -> Bool {
+        guard let before, let last = before.last else { return true }   // empty field
+        if last == "\n" { return true }
+        guard last == " " else { return false }
+        // Skip a run of spaces to find what the sentence actually ended with.
+        guard let terminal = before.dropLast().reversed().first(where: { $0 != " " }) else {
+            return true                                                 // only spaces so far
+        }
+        return ".!?".contains(terminal)
+    }
+
     /// Re-checks the App Group once a second. Without this the status line is a
     /// single snapshot taken when the keyboard appeared, which reads as a frozen
     /// counter and is easy to misdiagnose. It also means the button turns blue on
@@ -230,6 +276,8 @@ final class KeyboardViewController: UIInputViewController {
         coldStartTimer?.invalidate()
         modeWatch?.invalidate()
         modeWatch = nil
+        messageClear?.invalidate()
+        messageClear = nil
         cancelResultWatch()
         dismissModeMenu()
     }
@@ -401,15 +449,17 @@ final class KeyboardViewController: UIInputViewController {
                 // disk, so reopening recovers it.
                 if SharedStore.secondsSinceLive > 6 {
                     self.cancelResultWatch()
-                    self.statusLabel.text = "Dictator stopped. Reopen it — your recording was saved."
                     self.wakeMessage = "Dictator stopped mid-transcription. Reopen it to recover your recording."
                     self.mode = .needsSession
+                    self.render()
                     return
                 }
                 if Date() >= hardCap {
                     self.cancelResultWatch()
-                    self.statusLabel.text = "Still working. Open Dictator to check."
                     self.mode = .ready
+                    // flash AFTER the mode change: the mode's own render would
+                    // otherwise overwrite this the moment it ran.
+                    self.flash("Still working. Open Dictator to check.", seconds: 6)
                     return
                 }
                 // Still working: show elapsed once it is long enough to matter,
@@ -425,6 +475,30 @@ final class KeyboardViewController: UIInputViewController {
     private func cancelResultWatch() {
         resultWatch?.invalidate()
         resultWatch = nil
+    }
+
+    /// Show a one-off message on the pill, then fall back to the mode's own text.
+    ///
+    /// Assigning `statusLabel.text` directly does not survive and does not clear:
+    /// `render()` only runs when the MODE changes, so a message set while the
+    /// mode was already `.ready` sat on the pill until the next state change —
+    /// "Nothing heard" stayed under a blue Tap-to-talk pill indefinitely. Worse,
+    /// a message set BEFORE a mode assignment was wiped by that mode's render
+    /// and never seen at all.
+    private func flash(_ message: String, seconds: TimeInterval = 4) {
+        messageClear?.invalidate()
+        statusLabel.text = message
+        micButton.accessibilityValue = message
+        UIAccessibility.post(notification: .announcement, argument: message)
+        let t = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.messageClear = nil
+                self.render()
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        messageClear = t
     }
 
     /// The one bounce. Only when the app is not running (or needs setup).
@@ -533,10 +607,11 @@ final class KeyboardViewController: UIInputViewController {
             if SharedStore.lastErrorRetryable {
                 retryMessage = err
                 mode = .retryError
+                render()          // the mode may already BE .retryError
             } else {
                 retryMessage = nil
                 mode = .ready
-                statusLabel.text = err
+                flash(err)
             }
             return
         }
@@ -544,26 +619,25 @@ final class KeyboardViewController: UIInputViewController {
             mode = .ready
             return
         }
-        insert(text)
-        lastInserted = text
+        lastInserted = insert(text)
         lastUndone = nil                 // a fresh dictation invalidates redo
         undoButton.isHidden = false
         redoButton.isHidden = true
         mode = .ready
-        statusLabel.text = "Tap to talk"
+        render()
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
-    private func insert(_ text: String) {
+    /// Inserts the transcript and returns EXACTLY what was inserted.
+    ///
+    /// Returning it is the point: undo deletes one character per character of
+    /// what it thinks it typed, and the leading space below was not counted, so
+    /// undo always left a stray space behind. One insertText call, one string,
+    /// one thing to undo.
+    @discardableResult
+    private func insert(_ text: String) -> String {
         let proxy = textDocumentProxy
         let before = proxy.documentContextBeforeInput
-
-        // Leading space when the previous character is not whitespace and the new
-        // text does not open with punctuation.
-        if let before, let last = before.last, !last.isWhitespace,
-           let first = text.first, !first.isPunctuation {
-            proxy.insertText(" ")
-        }
 
         // Capitalise the first letter at a sentence start, unless the register is
         // Super casual, which is deliberately lowercase.
@@ -571,7 +645,16 @@ final class KeyboardViewController: UIInputViewController {
         if DictationMode.current != .superCasual, atSentenceStart(before) {
             out = capitalizingFirst(out)
         }
+
+        // Leading space when the previous character is not whitespace and the new
+        // text does not open with punctuation.
+        if let before, let last = before.last, !last.isWhitespace,
+           let first = text.first, !first.isPunctuation {
+            out = " " + out
+        }
+
         proxy.insertText(out)
+        return out
     }
 
     private func atSentenceStart(_ before: String?) -> Bool {
@@ -610,9 +693,17 @@ final class KeyboardViewController: UIInputViewController {
 
     private func render() {
         modeButton.setTitle(DictationMode.current.displayName, for: .normal)
+        modeButton.accessibilityLabel = "Style: \(DictationMode.current.displayName)"
 
         micButton.isEnabled = true
         micButton.alpha = 1
+        defer {
+            // VoiceOver reads the pill as one control, so the status line has to
+            // travel with it. Without this the pill announced only "Dictate" and
+            // never said whether it was listening, working, or asking for setup.
+            micButton.accessibilityValue = statusLabel.text
+            micButton.accessibilityLabel = mode == .recording ? "Stop dictating" : "Dictate"
+        }
 
         switch mode {
         case .needsFullAccess:
@@ -828,7 +919,14 @@ final class KeyboardViewController: UIInputViewController {
             title: plane == .letters ? nil : (plane == .numbers ? "#+=" : "123"),
             action: plane == .letters ? #selector(shiftTapped) : #selector(planeToggleTapped)
         )
-        let deleteKey = makeSpecial(image: "delete.left", title: nil, action: #selector(deleteTapped))
+        shiftKey.accessibilityLabel = plane == .letters
+            ? "Shift"
+            : (plane == .numbers ? "More symbols" : "Numbers")
+        // Delete fires on touch-DOWN only. It used to ALSO carry a touchUpInside
+        // target, so lifting off after a long hold deleted one extra character
+        // after the repeat had already stopped.
+        let deleteKey = makeSpecial(image: "delete.left", title: nil, action: nil)
+        deleteKey.accessibilityLabel = "Delete"
         deleteKey.addTarget(self, action: #selector(deleteDown), for: .touchDown)
         deleteKey.addTarget(self, action: #selector(deleteUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
         self.shiftKey = plane == .letters ? shiftKey : nil
@@ -852,15 +950,17 @@ final class KeyboardViewController: UIInputViewController {
             title: plane == .letters ? "123" : "ABC",
             action: #selector(planeSwitchTapped)
         )
-        let space = makeSpecial(image: nil, title: "space", action: #selector(spaceTapped))
-        // Space on touch-DOWN too, for the same reason as the letters: fast typing
+        planeKey.accessibilityLabel = plane == .letters ? "Numbers and punctuation" : "Letters"
+        // Space on touch-DOWN, for the same reason as the letters: fast typing
         // rolls off the space bar before a clean touchUpInside, dropping the space
         // (this is what turned "chat tomorrow" into "chattomorrow").
-        space.removeTarget(self, action: #selector(spaceTapped), for: .touchUpInside)
+        let space = makeSpecial(image: nil, title: "space", action: nil)
         space.addTarget(self, action: #selector(spaceTapped), for: .touchDown)
+        space.accessibilityLabel = "Space"
         space.backgroundColor = palette.key
         space.setTitleColor(palette.keyText, for: .normal)
-        let ret = makeSpecial(image: nil, title: "return", action: #selector(returnTapped))
+        let ret = makeSpecial(image: nil, title: returnKeyTitle(), action: #selector(returnTapped))
+        ret.accessibilityLabel = returnKeyTitle()
 
         fourth.addArrangedSubview(planeKey)
         fourth.addArrangedSubview(globeButton)
@@ -912,7 +1012,10 @@ final class KeyboardViewController: UIInputViewController {
         return b
     }
 
-    private func makeSpecial(image: String?, title: String?, action: Selector) -> UIButton {
+    /// `action` is optional because two of these keys fire on touch-DOWN, not on
+    /// touchUpInside. Space used to be built with a touchUpInside target that was
+    /// then removed again, and delete kept one it should never have had.
+    private func makeSpecial(image: String?, title: String?, action: Selector?) -> UIButton {
         let b = UIButton(type: .custom)
         if let image {
             b.setImage(UIImage(systemName: image), for: .normal)
@@ -921,11 +1024,16 @@ final class KeyboardViewController: UIInputViewController {
         if let title {
             b.setTitle(title, for: .normal)
             b.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular)
+            // "continue" is a real returnKeyType title and does not fit a 22%
+            // key at full size.
+            b.titleLabel?.adjustsFontSizeToFitWidth = true
+            b.titleLabel?.minimumScaleFactor = 0.7
+            b.titleLabel?.lineBreakMode = .byClipping
             b.setTitleColor(palette.specialText, for: .normal)
         }
         b.backgroundColor = palette.special
         b.layer.cornerRadius = 5
-        b.addTarget(self, action: action, for: .touchUpInside)
+        if let action { b.addTarget(self, action: action, for: .touchUpInside) }
         return b
     }
 
@@ -1038,13 +1146,31 @@ final class KeyboardViewController: UIInputViewController {
         UIDevice.current.playInputClick()
     }
 
-    @objc private func deleteTapped() {
-        textDocumentProxy.deleteBackward()
-        UIDevice.current.playInputClick()
+    /// The return key says what it will do, like the system keyboard does. A
+    /// Send field that offers a key labelled "return" is the kind of small wrong
+    /// detail that makes a keyboard feel like a stand-in for the real one.
+    private func returnKeyTitle() -> String {
+        switch textDocumentProxy.returnKeyType {
+        case .go:            return "go"
+        case .join:          return "join"
+        case .next:          return "next"
+        case .route:         return "route"
+        case .search:        return "search"
+        case .google:        return "search"
+        case .yahoo:         return "search"
+        case .send:          return "send"
+        case .done:          return "done"
+        case .emergencyCall: return "call"
+        case .continue:      return "continue"
+        default:             return "return"
+        }
     }
 
     @objc private func deleteDown(_ sender: UIButton) {
         sender.backgroundColor = palette.specialPressed
+        // The one deletion a tap performs, on touch-down like every other key.
+        textDocumentProxy.deleteBackward()
+        UIDevice.current.playInputClick()
         deleteRepeat?.invalidate()
         deleteTicks = 0
         // Hold to repeat, after a short grace period, then ACCELERATE and switch
@@ -1128,7 +1254,12 @@ final class KeyboardViewController: UIInputViewController {
         redoButton.isHidden = true
 
         let height = view.heightAnchor.constraint(equalToConstant: 268)
-        height.priority = .required
+        // NOT .required. The system installs its own temporary height constraints
+        // while a keyboard appears and rotates, and a required constraint of ours
+        // conflicts with them — which shows up as constraint-break logs and a
+        // visible height jump on the first appearance. 999 wins against
+        // everything that matters and yields to the system's own.
+        height.priority = UILayoutPriority(999)
         heightConstraint = height
 
         NSLayoutConstraint.activate([
@@ -1214,6 +1345,7 @@ final class KeyboardViewController: UIInputViewController {
         b.layer.shadowOffset = CGSize(width: 0, height: 1)
         b.layer.shadowRadius = 3
         b.addTarget(self, action: #selector(micTapped), for: .touchUpInside)
+        b.accessibilityLabel = "Dictate"
         return b
     }
 
@@ -1222,9 +1354,12 @@ final class KeyboardViewController: UIInputViewController {
         l.textAlignment = .left
         l.font = .systemFont(ofSize: 14, weight: .medium)
         l.textColor = .white
-        l.numberOfLines = 1
+        // Two lines. The honest failure copy ("Dictator stopped mid-transcription.
+        // Reopen it to recover your recording.") was being squeezed onto one line
+        // at 70% size, which is the point where a message stops being read.
+        l.numberOfLines = 2
         l.adjustsFontSizeToFitWidth = true
-        l.minimumScaleFactor = 0.7
+        l.minimumScaleFactor = 0.8
         l.text = "Tap to talk"
         return l
     }
@@ -1236,6 +1371,7 @@ final class KeyboardViewController: UIInputViewController {
         b.backgroundColor = .systemGray3
         b.layer.cornerRadius = 10
         b.addTarget(self, action: #selector(modeTapped), for: .touchUpInside)
+        b.accessibilityHint = "Changes the writing style. Touch and hold to pick one."
         return b
     }
 
@@ -1246,6 +1382,7 @@ final class KeyboardViewController: UIInputViewController {
         b.backgroundColor = .systemGray3
         b.layer.cornerRadius = 5
         b.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
+        b.accessibilityLabel = "Next keyboard"
         return b
     }
 
@@ -1256,6 +1393,7 @@ final class KeyboardViewController: UIInputViewController {
         b.backgroundColor = .systemGray3
         b.layer.cornerRadius = 10
         b.addTarget(self, action: #selector(undoTapped), for: .touchUpInside)
+        b.accessibilityLabel = "Undo dictation"
         return b
     }
 
@@ -1266,6 +1404,7 @@ final class KeyboardViewController: UIInputViewController {
         b.backgroundColor = .systemGray3
         b.layer.cornerRadius = 10
         b.addTarget(self, action: #selector(redoTapped), for: .touchUpInside)
+        b.accessibilityLabel = "Redo dictation"
         return b
     }
 }

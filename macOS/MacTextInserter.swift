@@ -1,31 +1,23 @@
 import Cocoa
-import ApplicationServices
 
-/// Gets text into whatever has focus.
+/// Gets text into whatever has focus: the pasteboard plus a synthetic Cmd-V,
+/// with the clipboard saved and restored around it.
 ///
-/// Two strategies, because neither works everywhere:
+/// There WAS a second strategy, writing kAXSelectedText through the
+/// Accessibility API, tried first because it leaves the clipboard alone. It is
+/// gone. In Electron and Chromium apps (Claude, Slack, VS Code, Discord) that
+/// write reports success and inserts nothing, so the fallback never ran and the
+/// dictation silently vanished. Pasting works in those apps AND in native ones,
+/// so there is one path, and it is the one that always works.
 ///
-///  1. Accessibility API. Clean, instant, leaves the pasteboard alone. Works in
-///     native AppKit apps. Fails in most Electron apps and some browsers, which
-///     either do not expose kAXSelectedText or ignore writes to it.
-///
-///  2. Pasteboard plus synthetic Cmd-V. Works essentially everywhere, including
-///     Electron. Clobbers the clipboard, so we save and restore it.
-///
-/// Try 1, fall back to 2. That ordering is what makes it feel native in Mail and
-/// still work in Slack.
+/// (The Accessibility code sat here unused and uncalled after that decision,
+/// describing behaviour the app no longer had.)
 public struct MacTextInserter {
 
     public init() {}
 
     public func insert(_ text: String) {
         guard !text.isEmpty else { return }
-        // Pasteboard + Cmd-V is the universal path. The Accessibility write is
-        // cleaner (no clipboard touch) and works in native AppKit apps like
-        // Messages, but in Electron/Chromium apps (Claude, Slack, VS Code, Discord)
-        // it reports success while inserting nothing — so we never fell back and
-        // the text vanished. Pasting works in BOTH, and we save/restore the
-        // clipboard so it stays invisible. Reliability beats the clipboard nicety.
         insertViaPasteboard(text)
     }
 
@@ -34,44 +26,7 @@ public struct MacTextInserter {
         NSWorkspace.shared.frontmostApplication?.bundleIdentifier
     }
 
-    // MARK: - Strategy 1
-
-    private func insertViaAccessibility(_ text: String) -> Bool {
-        let system = AXUIElementCreateSystemWide()
-
-        var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-              let element = focused
-        else { return false }
-
-        let target = element as! AXUIElement
-
-        // Only attempt this on things that actually take text. Writing selected text
-        // to a non-text element can do surprising things.
-        var role: CFTypeRef?
-        AXUIElementCopyAttributeValue(target, kAXRoleAttribute as CFString, &role)
-        let roleString = role as? String
-        let textRoles: Set<String> = [
-            kAXTextFieldRole as String,
-            kAXTextAreaRole as String,
-            kAXComboBoxRole as String
-        ]
-        guard let roleString, textRoles.contains(roleString) else { return false }
-
-        var settable: DarwinBoolean = false
-        guard AXUIElementIsAttributeSettable(target, kAXSelectedTextAttribute as CFString, &settable) == .success,
-              settable.boolValue
-        else { return false }
-
-        let result = AXUIElementSetAttributeValue(
-            target,
-            kAXSelectedTextAttribute as CFString,
-            text as CFTypeRef
-        )
-        return result == .success
-    }
-
-    // MARK: - Strategy 2
+    // MARK: - Pasteboard insert
 
     private func insertViaPasteboard(_ text: String) {
         let pasteboard = NSPasteboard.general

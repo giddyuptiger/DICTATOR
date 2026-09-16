@@ -12,6 +12,4 @@ Packages/
 # Local API keys. Copy Secrets.swift.example to Secrets.swift.
 Sources/DictationCore/Secrets.swift
 
-# Xcode Cloud writes this from an environment variable.
-Sources/DictationCore/Secrets.swift
 _to_delete/

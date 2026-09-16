@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import AVFoundation
 import ServiceManagement
 
 // Note: DictationCore is compiled directly into this target as source
@@ -20,11 +21,36 @@ struct DictatorMacApp: App {
         MenuBarExtra {
             MenuContent().environmentObject(delegate)
         } label: {
-            Image(systemName: delegate.menuIcon)
+            MenuBarLabel().environmentObject(delegate)
         }
         Settings {
             SettingsView().environmentObject(delegate)
         }
+    }
+}
+
+// MARK: - Menu bar label
+
+/// The menu bar icon, and the one piece of SwiftUI that is ALWAYS on screen.
+///
+/// That second job is why it is a view instead of a bare `Image`. Opening the
+/// Settings scene needs `@Environment(\.openSettings)`, which only exists inside
+/// a view — and the AppDelegate has to open Settings on first run. It used to do
+/// that with `NSApp.sendAction(Selector(("showSettingsWindow:")))`, which does
+/// nothing at all in a menu-bar-only (LSUIElement) app on macOS 14+, so the
+/// first-run setup window silently never appeared. The menu's own content view
+/// cannot do it either: it only exists while the menu is open. This one always
+/// exists, so a request from anywhere in the app can be honoured.
+struct MenuBarLabel: View {
+    @EnvironmentObject var app: AppDelegate
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Image(systemName: app.menuIcon)
+            .onChange(of: app.settingsRequest) { _, _ in
+                NSApp.activate(ignoringOtherApps: true)
+                openSettings()
+            }
     }
 }
 
@@ -94,6 +120,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     @Published var micGranted = false
     @Published var mode: DictationMode = DictationMode.current
     @Published var selectedTab: SettingsTab = .setup
+    /// Bumped to ask MenuBarLabel to open the Settings scene. See MenuBarLabel.
+    @Published var settingsRequest = 0
 
     private var session: DictationSession?
     private let inserter = MacTextInserter()
@@ -123,12 +151,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     // MARK: - Setup
 
     private func bootstrap() async {
-        guard await AudioRecorder.requestPermission() else {
-            status = "Microphone permission denied"
-            micGranted = false
-            return
+        micGranted = await AudioRecorder.requestPermission()
+        if !micGranted {
+            // Do NOT stop here. Returning early meant a denied microphone also
+            // meant no hotkey, no model, and no working Settings window — so the
+            // one screen that explains how to fix it was unreachable, and only a
+            // relaunch got you out. Set the flag, start watching for the grant,
+            // and build everything else as usual.
+            watchForMicrophone()
         }
-        micGranted = true
 
         // Ask for Accessibility before anything depends on it. Without this the
         // first sign of trouble is a CGEventTap that silently refuses to be
@@ -203,7 +234,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         accessibilityWatch = t
     }
 
+    /// macOS grants the microphone without telling the app, exactly as it does
+    /// with Accessibility. Poll so the status line corrects itself when the user
+    /// comes back from System Settings, rather than lying until the next launch.
+    private var micWatch: Timer?
+
+    private func watchForMicrophone() {
+        guard micWatch == nil else { return }
+        let t = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
+                self.micWatch?.invalidate()
+                self.micWatch = nil
+                self.micGranted = true
+                if self.hotkey != nil { self.status = self.readyStatus }
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        micWatch = t
+    }
+
+    private var readyStatus: String {
+        guard micGranted else { return "Microphone is off. Allow it in System Settings." }
+        return "Ready. Hold \(Prefs.useRightOption ? "right ⌥" : "fn") to talk."
+    }
+
+    /// Rebuild the event tap, e.g. after the trigger key changes.
+    func restartHotkey() { startHotkey() }
+
     private func startHotkey() {
+        // Tear the old tap down first. bootstrap() and the Accessibility watcher
+        // can both reach here, and replacing `hotkey` without stopping it left
+        // the previous CGEventTap installed and listening — two taps, two
+        // onPress calls, one keypress.
+        hotkey?.stop()
+        hotkey = nil
+
         let trigger: HotkeyMonitor.Trigger = Prefs.useRightOption ? .rightOption : .fn
         let monitor = HotkeyMonitor(trigger: trigger)
         monitor.onPress   = { [weak self] in Task { @MainActor in self?.begin() } }
@@ -213,7 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         do {
             try monitor.start()
             hotkey = monitor
-            status = "Ready. Hold \(Prefs.useRightOption ? "right ⌥" : "fn") to talk."
+            status = readyStatus
         } catch {
             status = "Grant Accessibility permission, then relaunch Dictator."
         }
@@ -243,7 +310,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             await session.cancel()
             isRecording = false
             indicator.hide()
-            status = "Ready."
+            status = readyStatus
         }
     }
 
@@ -259,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             let profile = ToneProfile.forBundleID(bundleID)
             guard let out = await session.finish(profile: profile) else {
                 indicator.hide()
-                status = "Ready."
+                status = readyStatus
                 return
             }
             lastTranscript = out.text
@@ -267,18 +334,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             lastTiming = String(format: "%.0f ms transcribe · %.0f ms cleanup",
                                 out.transcribeTime * 1000, out.cleanupTime * 1000)
             indicator.hide()
-            status = "Ready."
+            status = readyStatus
         }
-    }
-
-    func openSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 
     func showSettings(tab: SettingsTab) {
         selectedTab = tab
-        openSettings()
+        settingsRequest += 1
     }
 }
 
@@ -446,9 +508,14 @@ struct GeneralTab: View {
                     Text("Right Option").tag(true)
                 }
                 .pickerStyle(.radioGroup)
-                .onChange(of: rightOption) { _, new in Prefs.useRightOption = new }
+                .onChange(of: rightOption) { _, new in
+                    Prefs.useRightOption = new
+                    // Rebuild the tap now. This used to need a relaunch, which is
+                    // a lot to ask for flipping a radio button.
+                    app.restartHotkey()
+                }
 
-                Text("If you use fn, set System Settings › Keyboard › \"Press 🌐 to\" to \"Do Nothing\", or macOS will take the key for its own dictation. Relaunch after changing this.")
+                Text("If you use fn, set System Settings › Keyboard › \"Press 🌐 to\" to \"Do Nothing\", or macOS will take the key for its own dictation.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

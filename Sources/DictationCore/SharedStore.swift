@@ -7,6 +7,14 @@ public enum SharedStore {
 
     public static let appGroup = "group.design.irons.dictator"
 
+    /// Deliberately rebuilt per access rather than cached.
+    ///
+    /// A cached suite is the obvious optimisation and it is NOT taken here: the
+    /// keyboard's whole liveness test is reading a value the OTHER process just
+    /// wrote, and a cached App Group suite in an extension is exactly where
+    /// stale-cache reports cluster. A fresh instance re-reads through cfprefsd
+    /// every time, which is what makes the handshake reliable. The cost is a
+    /// container lookup; the handshake is worth more.
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: appGroup)
     }

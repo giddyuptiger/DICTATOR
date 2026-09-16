@@ -18,7 +18,11 @@ public enum DarwinSignal: String, CaseIterable, Sendable {
     case retry          = "design.irons.dictator.retry"
     /// Keyboard → app: are you alive? (cold-start detection)
     case ping           = "design.irons.dictator.ping"
-    /// Keyboard → app: I am on screen, open the microphone.
+    /// Reserved. Nothing posts or observes this: the app holds the microphone
+    /// for the whole session, so there is no "open it now" for the keyboard to
+    /// ask for. Its partner `keyboardHidden` IS used, to close an abandoned
+    /// capture. Kept as the obvious name to reach for if the mic ever becomes
+    /// on-demand; the doc comment used to describe behaviour that did not exist.
     case keyboardShown  = "design.irons.dictator.kbshown"
     /// Keyboard → app: I am gone, release the microphone.
     case keyboardHidden = "design.irons.dictator.kbhidden"

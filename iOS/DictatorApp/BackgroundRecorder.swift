@@ -95,9 +95,30 @@ final class AudioEngineHost: @unchecked Sendable {
     private var samples: [Float] = []
     private var capturing = false
     private var latestLevel: Float = 0
-    private var running = false
-    private var silenceRunning = false
     private let lock = NSLock()
+
+    /// Both flags are WRITTEN on the engine queue and READ from the main actor
+    /// (the heartbeat, beginCapture, the status line), so they need the lock the
+    /// rest of the shared state already uses. They were plain `var`s: an
+    /// unsynchronised cross-thread read with no barrier, which is a data race by
+    /// the language rules and, more practically, lets the health check keep
+    /// seeing a stale `true` for an engine that has already died — the exact
+    /// failure the health check exists to catch.
+    ///
+    /// Neither accessor is ever touched while the lock is already held, so the
+    /// non-recursive NSLock is safe here.
+    private var _running = false
+    private var _silenceRunning = false
+
+    private var running: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _running }
+        set { lock.lock(); _running = newValue; lock.unlock() }
+    }
+
+    private var silenceRunning: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _silenceRunning }
+        set { lock.lock(); _silenceRunning = newValue; lock.unlock() }
+    }
 
     /// EVERY AVAudioEngine mutation runs on this one serial queue. AVAudioEngine
     /// is NOT thread-safe: touching it (attach/connect/installTap/removeTap/start/
@@ -982,7 +1003,9 @@ public final class BackgroundRecorder: ObservableObject {
 
     private func recover(_ samples: [Float]) async {
         guard let key = SharedStore.groqAPIKey, !key.isEmpty else { return }
-        let dictionary = PersonalDictionary.mergeFromCloud()
+        // load(), not mergeFromCloud(): the cloud merge belongs to launch and to
+        // the vocabulary screen, not to the latency path of a dictation.
+        let dictionary = PersonalDictionary.load()
         let speech = GroqTranscription(apiKey: key, biasTerms: dictionary.entries.map(\.canonical))
         let cleaner = Cleaner(provider: GroqCleanup(apiKey: key), dictionary: dictionary)
         do {
@@ -1074,7 +1097,9 @@ public final class BackgroundRecorder: ObservableObject {
             return
         }
 
-        let dictionary = PersonalDictionary.mergeFromCloud()
+        // load(), not mergeFromCloud(): reading the words is all this needs, and
+        // the cloud merge used to run (and write) on every single dictation.
+        let dictionary = PersonalDictionary.load()
         let speech = GroqTranscription(apiKey: key, biasTerms: dictionary.entries.map(\.canonical))
         let cleaner = Cleaner(provider: GroqCleanup(apiKey: key), dictionary: dictionary)
 

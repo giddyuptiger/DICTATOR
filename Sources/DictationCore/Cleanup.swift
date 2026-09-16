@@ -75,7 +75,11 @@ public struct Cleaner: Sendable {
             }
 
             // Dictionary runs after the model, so it wins any disagreement.
-            let final = dictionary.apply(to: cleaned)
+            // Use the TRIMMED text: models routinely return a trailing newline or
+            // a leading space, and inserting that verbatim drops the caret onto a
+            // new line in the middle of someone's message. The trim is the whole
+            // reason cleanedTrimmed exists; using `cleaned` here threw it away.
+            let final = dictionary.apply(to: cleanedTrimmed)
             return CleanupResult(text: final, usedProvider: true, latency: Date().timeIntervalSince(start))
         } catch {
             // Never lose the user's words to a network failure. Degrade to raw,

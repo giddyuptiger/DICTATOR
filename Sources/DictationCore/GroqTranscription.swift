@@ -82,13 +82,13 @@ public struct GroqTranscription: SpeechProvider {
         var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/models")!)
         request.httpMethod = "GET"
         request.setValue("Bearer \(trimmed)", forHTTPHeaderField: "Authorization")
+        // Per-request bound. This used to build its own URLSession and never
+        // invalidate it — the same leak that made the pipeline get slower and
+        // slower (see GroqHTTP). Onboarding can validate a key several times in a
+        // row, so it leaked there too. One shared session, one request timeout.
+        request.timeoutInterval = 10
 
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 10
-        config.waitsForConnectivity = false
-        let session = URLSession(configuration: config)
-
-        let (_, response) = try await session.data(for: request)
+        let (_, response) = try await GroqHTTP.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { return false }
         return (200..<300).contains(http.statusCode)
     }

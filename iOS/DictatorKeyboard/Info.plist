@@ -14,10 +14,14 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
+	<!-- MUST track the container app. App Store validation rejects an upload
+	     whose extension version does not match its containing app, and these
+	     were pinned to 1.0 (1) while the app shipped 0.1.46 from
+	     MARKETING_VERSION and took its build number from Xcode Cloud. -->
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 
 	<key>NSExtension</key>
 	<dict>

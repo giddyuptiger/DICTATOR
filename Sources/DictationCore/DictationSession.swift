@@ -1,5 +1,48 @@
 import Foundation
 
+/// Where captured samples land, straight off the audio thread.
+///
+/// Audio arrives on CoreAudio's realtime thread about fifty times a second. The
+/// tap used to hop every single buffer onto the actor with
+/// `Task { await append(samples) }` — one Task allocation and one actor
+/// scheduling round trip per 20 ms of speech, purely to append to an array. The
+/// iOS recorder hit the same wall and stopped doing it; this is the same fix for
+/// the Mac path. Samples go into a lock-guarded box with no allocation and no
+/// scheduling, and the actor reads it once, when the utterance ends.
+///
+/// `@unchecked Sendable` is accurate: every access to both stored properties is
+/// inside `lock`, and the level handler is invoked outside it so a slow UI
+/// handler can never block the audio thread.
+private final class SampleBox: @unchecked Sendable {
+    private var samples: [Float] = []
+    private var level: (@Sendable (Float) -> Void)?
+    private let lock = NSLock()
+
+    func setLevel(_ handler: (@Sendable (Float) -> Void)?) {
+        lock.lock(); level = handler; lock.unlock()
+    }
+
+    func append(_ new: [Float]) {
+        lock.lock()
+        samples.append(contentsOf: new)
+        let handler = level
+        lock.unlock()
+        handler?(AudioUtil.rms(new))
+    }
+
+    /// Everything captured so far, and reset. Copy-on-write means the returned
+    /// array is unaffected by the reset that follows it.
+    func drain() -> [Float] {
+        lock.lock()
+        defer { samples.removeAll(keepingCapacity: true); lock.unlock() }
+        return samples
+    }
+
+    func reset() {
+        lock.lock(); samples.removeAll(keepingCapacity: true); lock.unlock()
+    }
+}
+
 /// One utterance, start to finish, shared by the Mac app and the iOS keyboard.
 ///
 /// Everything platform-specific is injected: where audio comes from is the same
@@ -27,16 +70,18 @@ public actor DictationSession {
     private var cleaner: Cleaner
     private var dictionary: PersonalDictionary
 
-    private var buffer: [Float] = []
+    private let box = SampleBox()
     private var state: State = .idle
 
-    /// Live microphone level, 0...1, for a waveform or pulsing button.
-    private var onLevel: (@Sendable (Float) -> Void)?
     private var onStateChange: (@Sendable (State) -> Void)?
 
     /// Actor state cannot be assigned from outside, so these are the way in.
+    ///
+    /// NOTE: the level handler is called on the AUDIO thread, not the main
+    /// thread, and roughly fifty times a second. Hop to the main queue yourself
+    /// before touching any UI, and keep the handler cheap.
     public func setOnLevel(_ handler: @escaping @Sendable (Float) -> Void) {
-        onLevel = handler
+        box.setLevel(handler)
     }
 
     public func setOnStateChange(_ handler: @escaping @Sendable (State) -> Void) {
@@ -72,19 +117,14 @@ public actor DictationSession {
         // a new start; anything else resets so the next dictation always works.
         if state == .listening { return }
         recorder.stop()                       // defensive; no-op if not running
-        buffer.removeAll(keepingCapacity: true)
+        box.reset()
 
-        try recorder.start { [weak self] samples in
-            guard let self else { return }
-            Task { await self.append(samples) }
+        let box = self.box
+        try recorder.start { samples in
+            box.append(samples)
         }
 
         setState(.listening)
-    }
-
-    private func append(_ samples: [Float]) {
-        buffer.append(contentsOf: samples)
-        onLevel?(AudioUtil.rms(samples))
     }
 
     /// Stop, transcribe, clean, return. Returns nil for a mis-tap.
@@ -92,8 +132,7 @@ public actor DictationSession {
         guard state == .listening else { return nil }
         recorder.stop()
 
-        let samples = buffer
-        buffer.removeAll(keepingCapacity: true)
+        let samples = box.drain()
 
         // Under a quarter second is a brushed key, not speech.
         guard samples.count > Int(AudioRecorder.targetSampleRate * 0.25) else {
@@ -139,7 +178,7 @@ public actor DictationSession {
     public func cancel() {
         guard state == .listening else { return }
         recorder.stop()
-        buffer.removeAll(keepingCapacity: true)
+        box.reset()
         setState(.idle)
     }
 
