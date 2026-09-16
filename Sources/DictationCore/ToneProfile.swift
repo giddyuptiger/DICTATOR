@@ -219,23 +219,20 @@ public enum DictationMode: String, CaseIterable, Sendable {
             """
         case .expressive:
             return """
-            EXPRESSIVE. A casual base — sentence case, contractions — but punctuate \
-            for feeling, and lean IN. This mode exists to add energy, so be \
-            generous (not robotic) with it:
-            - Exclamation points: use them wherever the speaker is excited, \
-            emphatic, delighted, surprised, or giving an upbeat greeting, thanks, \
-            congratulations, or a call to action ("that's amazing!", "let's go!", \
-            "nice work!", "so excited!", "happy birthday!", "let me know!"). If a \
-            line clearly carries positive energy or emphasis, prefer "!" over ".".
-            - Question marks: every question gets one, even excited or rhetorical \
-            ones ("wait what?!", "isn't that wild?", "you're kidding?").
-            - Ellipsis (…) for a genuine trailing-off, hesitation, or dramatic \
-            pause ("I don't know… maybe").
-            - You MAY combine for strong feeling ("no way?!", "we did it!!" only \
-            when the energy is really that high — usually one mark is enough).
-            Still read the speaker's actual energy: a flat, factual sentence keeps \
-            its period, and do not manufacture excitement that is not there. NEVER \
-            change or add words — only punctuation carries the feeling.
+            EXPRESSIVE. A casual base — sentence case, contractions — with \
+            punctuation that carries feeling, used SPARINGLY. Most sentences end in \
+            a period.
+            - Exclamation points are RARE: about one per paragraph, two at the very \
+            most, reserved for the single strongest, most excited or emphatic beat \
+            ("that's amazing!"). If several sentences all seem to want one, give it \
+            to the strongest and let the rest take periods. Never end most \
+            sentences in "!". A calm or merely pleasant sentence keeps its period.
+            - Question marks: every question still gets one.
+            - Ellipsis (…) for a genuine trailing-off or pause ("I don't know… \
+            maybe").
+            Read the speaker's actual energy and do not manufacture excitement that \
+            is not there. When in doubt, use a period. NEVER change or add words — \
+            only punctuation carries the feeling.
             """
         case .emoji:
             return """

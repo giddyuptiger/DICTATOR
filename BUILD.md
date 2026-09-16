@@ -382,6 +382,15 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.49 — Expressive: about half as many exclamation points (2026-09-16)
+
+User: a dictated paragraph came back with three exclamation points and one
+period; wanted one or two. 0.1.39 over-corrected ("lean IN, be generous").
+Dialled it back: exclamation points are now RARE — about one per paragraph, two
+at most, reserved for the single strongest beat; most sentences end in a period.
+Questions still get a question mark; ellipsis unchanged. (Rebased on top of the
+parallel session's 0.1.47 audit + 0.1.48 residency work.)
+
 ### 0.1.48 — the real reason you wake it every other minute (2026-09-16)
 
 Report: "I have to do it like every other minute, it's often." The 0.1.45 idle
