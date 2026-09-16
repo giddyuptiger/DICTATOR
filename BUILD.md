@@ -382,6 +382,24 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.54 — THE crash fix: install the mic tap with nil format (2026-09-16)
+
+Device CRASH log (build 55) finally pinned it:
+  "com.apple.coreaudio.avfaudio: Failed to create tap due to format mismatch,
+   <AVAudioFormat 1 ch, 48000 Hz, Float32>"
+right after "audio interruption ended; rebuilding". installTap was given the
+format read a moment earlier; after an interruption/route change the input
+node's LIVE format differs, so installTap threw a hard ObjC exception. The app
+crashed, relaunched, warmed, hit the same mismatch, crashed again — a crash LOOP
+that also pegged the CPU and starved the keyboard extension (this is the typing
+lag too: same root). The crash logger added in 0.1.42 is what captured it.
+
+Fix: install the tap with format nil (uses the bus's own current format, so it
+can never mismatch) and build the AVAudioConverter lazily in handle() from the
+actual buffer format, rebuilding it if the format changes. Robust across
+interruptions and route changes. Expect the crash loop — and much of the typing
+lag it caused — to go away.
+
 ### 0.1.53 — fix the red archive: two statements welded onto one line (2026-09-16)
 
 Build 54 failed, `xcodebuild archive` exit 65, six seconds in. A compile error,
