@@ -144,21 +144,28 @@ final class AudioEngineHost: @unchecked Sendable {
 
         let session = AVAudioSession.sharedInstance()
         do {
-            // .mixWithOthers is the difference between Dictator being a good
-            // citizen and a menace: a .playAndRecord session normally INTERRUPTS
-            // other audio, so turning Dictator on (or it rebuilding after an
-            // interruption) would pause the user's music/podcast and not resume
-            // it. .mixWithOthers lets our session coexist — their audio keeps
-            // playing the whole time Dictator is warm. The silent keep-alive just
-            // mixes in silently. (Bluetooth HFP is deliberately NOT requested:
-            // it would force AirPods to call-quality mono the whole time and its
-            // route switches were a source of the interruption-driven crash.
-            // Dictation uses the phone mic, so music through AirPods stays
-            // full quality.)
+            // IDLE audio policy: .mixWithOthers and nothing else. A .playAndRecord
+            // session normally INTERRUPTS other audio, so without this, turning
+            // Dictator on (or a rebuild) would pause the user's music and not
+            // resume it. .mixWithOthers lets our session coexist so their audio is
+            // untouched while Dictator is merely warm; the silent keep-alive mixes
+            // in silently.
+            //
+            // NO .defaultToSpeaker: it forces output to the phone speaker, which
+            // yanked car/Bluetooth music onto the phone. Without it, audio stays on
+            // whatever route the user is already on (car, AirPods, speaker).
+            //
+            // NO Bluetooth HFP: it would force AirPods to call-quality mono the
+            // whole time, and its route switches fed the interruption-driven tap
+            // crash. Dictation uses the phone mic.
+            //
+            // While actually CAPTURING we switch to .duckOthers (see setDucking) so
+            // the music drops out of the way and the mic gets clean speech, then
+            // restore .mixWithOthers when the capture ends.
             try session.setCategory(
                 .playAndRecord,
                 mode: .default,
-                options: [.defaultToSpeaker, .mixWithOthers]
+                options: [.mixWithOthers]
             )
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
@@ -222,6 +229,21 @@ final class AudioEngineHost: @unchecked Sendable {
     /// was a crash) and never blocks the caller.
     func ensureSilenceAlive() {
         engineQ.async { [weak self] in self?._ensureSilenceAlive() }
+    }
+
+    /// Duck other audio (music, podcast, nav) WHILE capturing, then restore the
+    /// mix when the capture ends, so the mic gets clean speech instead of the
+    /// user's music bleeding in (a real problem dictating over car Bluetooth).
+    /// Reconfigures the live session's options; no setActive, so it does not
+    /// resume audio the user paused by hand. Runs on the engine queue so it never
+    /// races a warm-up/rebuild. iOS ducks to roughly a fifth of full volume.
+    func setDucking(_ duck: Bool) {
+        engineQ.async { [weak self] in
+            guard let self, self.running else { return }
+            let session = AVAudioSession.sharedInstance()
+            let options: AVAudioSession.CategoryOptions = duck ? [.duckOthers] : [.mixWithOthers]
+            try? session.setCategory(.playAndRecord, mode: .default, options: options)
+        }
     }
 
     private func _ensureSilenceAlive() {
@@ -997,6 +1019,7 @@ public final class BackgroundRecorder: ObservableObject {
         // works from the background: nothing is being started here.
         state = .capturing
         bumpIdleTimer()          // activity: push the idle auto-off back out
+        audio.setDucking(true)   // drop the user's music out of the way while recording
         audio.begin()
         captureStartedAt = Date()
         startLevelTimer()
@@ -1046,6 +1069,7 @@ public final class BackgroundRecorder: ObservableObject {
     public func endCapture() {
         guard state == .capturing else { return }
         let samples = audio.end()
+        audio.setDucking(false)  // recording done — give the user their music back
         stopLevelTimer()
         captureCap?.invalidate()
         captureCap = nil

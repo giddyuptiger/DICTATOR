@@ -382,6 +382,24 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.56 — duck the music while dictating; stop hijacking the car route (2026-09-17)
+
+Device report (dictating over car Bluetooth): music jumped from the car to the
+phone speaker, kept playing full-volume during dictation (mic couldn't hear the
+user), and manually-paused music RESTARTED when dictation began.
+
+- Removed .defaultToSpeaker from the idle category — that was forcing output to
+  the phone speaker and yanking car/Bluetooth audio onto the phone. Audio now
+  stays on whatever route the user is on.
+- New setDucking(_:): on capture start switch the live session to .duckOthers
+  (music drops to ~1/5 volume out of the mic's way), on capture end restore
+  .mixWithOthers. Done via setCategory only (no setActive), so it does NOT resume
+  audio the user paused by hand — which was the "restarts my music" bug.
+
+Known limit: iOS ducks to ~20%, not 5% or a full pause. If car music still
+bleeds into the transcript at that level, escalate to a true pause (needs the
+interruption path, trickier, deferred until we see if ducking is enough).
+
 ### 0.1.55 — don't fight the user's music (mix, drop Bluetooth HFP) (2026-09-16)
 
 The always-on .playAndRecord session was hostile to other audio:
