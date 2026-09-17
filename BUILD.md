@@ -382,6 +382,36 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.66 — on-device transcription (opt-in): the free-tier engine (2026-09-17)
+
+First step of the business plan's free tier: wire the on-device Parakeet model
+(via FluidAudio) into the iOS app so transcription can run locally — free, private,
+offline — instead of only on Groq's cloud.
+
+- **Cloud stays the DEFAULT.** On-device is opt-in via a new Transcription picker in
+  the app (On-device / Cloud). This is deliberate: the on-device path is new and
+  can't be verified without a real device, so we don't ship it as the default until
+  it's proven. Flip it on to test; once it's good on device, a later build makes it
+  the default.
+- `project.yml`: DictatorIOS now links FluidAudio and includes LocalParakeet.swift
+  (still excluded from the keyboard extension — 48 MB ceiling). Transcription runs
+  in the container app, as it already did.
+- iOS uses the **compact** Parakeet tier (~250 MB), not the 900 MB one, to fit a
+  phone's memory budget. The model downloads once (into app storage) on first use;
+  later loads are fast and fully offline.
+- `BackgroundRecorder`: new `modelStatus` (idle/downloading/ready/failed) surfaced
+  in the UI; the model is prepared on warm-up/wake when on-device is selected, and
+  unloaded on idle-release / turn-off to free memory. Transcription picks the engine
+  per request and **falls back to cloud** if on-device isn't ready yet and a key
+  exists, so nothing breaks mid-download. Cleanup (punctuation/mode/paragraphs) runs
+  on Groq when a key is present and degrades to the dictionary-only pass without one
+  (on-device LLM cleanup is a later addition).
+- Added `TranscriptionEngine` enum + `SharedStore.transcriptionEngine` setting.
+
+Unverified without a device: FluidAudio's iOS build compatibility at deployment
+target 17.0, and on-device accuracy/memory/latency on real phones. Cloud default
+means the app still works regardless.
+
 ### 0.1.65 — spoken numbers make a numbered list, not bullets (2026-09-17)
 
 User dictated "number one… number two… number three" and it came out as bullet

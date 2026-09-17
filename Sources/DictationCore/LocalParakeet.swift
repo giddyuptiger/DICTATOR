@@ -1,12 +1,15 @@
 import Foundation
 import FluidAudio
 
-/// Parakeet on the Apple Neural Engine, via FluidAudio. Mac only.
+/// Parakeet on the Apple Neural Engine, via FluidAudio. Runs on the Mac and in the
+/// iOS *container app* (the free, private, offline transcription tier).
 ///
-/// Not used on the iPhone keyboard: a 0.6B model, or even the 120M one, does not
-/// fit the extension's 48 MB ceiling. It would fit in the iOS *container app*, so
-/// if you later add a "dictate into Dictator's own notes screen" feature, this class
-/// works there.
+/// NOT used by the iPhone keyboard extension: a 0.6B model — or even the 110M one —
+/// does not fit the extension's 48 MB ceiling. Transcription always runs in the
+/// container app, which is where the recorder lives, so that ceiling never applies.
+/// On iOS prefer the `.compact` tier (~250 MB); the `.accurate` tier (~900 MB) is
+/// risky on phones (iOS jettisons memory-hungry apps) and is better reserved for
+/// the Mac or a future high-RAM/premium path.
 public actor LocalParakeet: SpeechProvider {
 
     public enum Tier: Sendable {

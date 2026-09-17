@@ -444,7 +444,24 @@ public final class BackgroundRecorder: ObservableObject {
     @Published public private(set) var lastWasRecovered = false
     @Published public private(set) var eventLog: [String] = []
 
+    /// On-device speech model lifecycle, surfaced so the app can show "Downloading
+    /// model…" / "Ready" and so transcription knows whether the local engine is
+    /// usable yet.
+    public enum ModelStatus: Equatable {
+        case idle          // not selected, or unloaded
+        case downloading   // fetching/loading the CoreML bundle
+        case ready         // loaded and usable
+        case failed(String)
+    }
+    @Published public private(set) var modelStatus: ModelStatus = .idle
+
     private let audio = AudioEngineHost()
+
+    /// On-device transcription (Parakeet via FluidAudio), compact tier (~250 MB) so
+    /// it fits an iPhone's memory budget. Constructed cheaply here (no model load
+    /// until `prepare()`); prepared lazily when the on-device engine is selected.
+    /// Cloud (Groq) stays the default until on-device is proven on real devices.
+    private let localSpeech = LocalParakeet(tier: .compact)
     private var captureStartedAt: Date?
     private var levelTimer: Timer?
     private var isWarming = false
@@ -589,6 +606,7 @@ public final class BackgroundRecorder: ObservableObject {
                 bumpIdleTimer()
                 listen()
                 observeAudioLifecycle()
+                maybePrepareLocalModel()
                 recoverPendingIfAny()
                 return
             } catch {
@@ -885,6 +903,48 @@ public final class BackgroundRecorder: ObservableObject {
     }
 
     /// Deliberate teardown, user-initiated only.
+    // MARK: - On-device model
+
+    /// Prepare the on-device model if it is the selected engine and not already
+    /// ready or loading. Safe to call repeatedly. The download is one-time
+    /// (FluidAudio caches the CoreML bundle on disk); later loads are fast.
+    func maybePrepareLocalModel() {
+        guard SharedStore.transcriptionEngine == .onDevice else { return }
+        switch modelStatus {
+        case .downloading, .ready: return
+        case .idle, .failed: break
+        }
+        modelStatus = .downloading
+        log("on-device model: preparing (compact)")
+        let model = localSpeech
+        Task { [weak self] in
+            do {
+                try await model.prepare()
+                self?.modelStatus = .ready
+                self?.log("on-device model: ready")
+            } catch {
+                let reason = String(describing: error).prefix(120)
+                self?.modelStatus = .failed(String(reason))
+                self?.log("on-device model: failed — \(reason)")
+            }
+        }
+    }
+
+    /// Called by the app when the user flips the transcription engine. Persists the
+    /// choice, then either starts loading the local model or frees it.
+    public func setTranscriptionEngine(_ engine: TranscriptionEngine) {
+        SharedStore.transcriptionEngine = engine
+        log("transcription engine: \(engine.rawValue)")
+        switch engine {
+        case .onDevice:
+            maybePrepareLocalModel()
+        case .cloud:
+            let model = localSpeech
+            Task { await model.unload() }
+            modelStatus = .idle
+        }
+    }
+
     public func shutDown() {
         stopLevelTimer()
         heartbeat?.invalidate()
@@ -897,6 +957,10 @@ public final class BackgroundRecorder: ObservableObject {
         idleTimer = nil
         let host = audio
         Task.detached(priority: .userInitiated) { host.stopEverything() }
+        // Free the on-device model's memory when the user turns Dictator off.
+        let model = localSpeech
+        Task { await model.unload() }
+        if modelStatus != .idle { modelStatus = .idle }
         SharedStore.setEngineWarm(false)
         state = .cold
         log("engine stopped by user")
@@ -936,6 +1000,10 @@ public final class BackgroundRecorder: ObservableObject {
         idleTimer?.invalidate(); idleTimer = nil
         let host = audio
         Task.detached(priority: .utility) { host.stopEverything() }
+        // Free the on-device model too; next warm-up reloads it (fast, from cache).
+        let model = localSpeech
+        Task { await model.unload() }
+        if modelStatus != .idle { modelStatus = .idle }
         SharedStore.setEngineWarm(false)
         state = .cold
     }
@@ -997,6 +1065,7 @@ public final class BackgroundRecorder: ObservableObject {
         // this entire cold-start path exists to perform.
         isForeground = true
         if state != .warm { await resync() }
+        maybePrepareLocalModel()
         wokeForDictation = true
     }
 
@@ -1159,18 +1228,31 @@ public final class BackgroundRecorder: ObservableObject {
     private func recoverPendingIfAny() {
         guard let samples = readPending() else { return }
         guard samples.count > 3_200 else { clearPending(); return }   // too short to matter
-        guard let key = SharedStore.groqAPIKey, !key.isEmpty else { return }  // no key yet; keep the file
+        // Need SOME engine available: a Groq key, or the on-device model loaded.
+        let hasKey = !(SharedStore.groqAPIKey ?? "").isEmpty
+        let onDeviceReady = SharedStore.transcriptionEngine == .onDevice && modelStatus == .ready
+        guard hasKey || onDeviceReady else { return }   // nothing to transcribe with yet; keep the file
         log(String(format: "recovering %.1fs from a previous session", Double(samples.count) / 16_000))
         Task { await recover(samples) }
     }
 
     private func recover(_ samples: [Float]) async {
-        guard let key = SharedStore.groqAPIKey, !key.isEmpty else { return }
         // load(), not mergeFromCloud(): the cloud merge belongs to launch and to
         // the vocabulary screen, not to the latency path of a dictation.
         let dictionary = PersonalDictionary.load()
-        let speech = GroqTranscription(apiKey: key, biasTerms: dictionary.entries.map(\.canonical))
-        let cleaner = Cleaner(provider: GroqCleanup(apiKey: key), dictionary: dictionary)
+        let key = SharedStore.groqAPIKey ?? ""
+        let onDeviceReady = SharedStore.transcriptionEngine == .onDevice && modelStatus == .ready
+        let speech: SpeechProvider
+        if onDeviceReady {
+            speech = localSpeech
+        } else if !key.isEmpty {
+            speech = GroqTranscription(apiKey: key, biasTerms: dictionary.entries.map(\.canonical))
+        } else {
+            return   // no engine available; leave the file for a later launch
+        }
+        let cleaner = key.isEmpty
+            ? Cleaner(provider: nil, dictionary: dictionary)
+            : Cleaner(provider: GroqCleanup(apiKey: key), dictionary: dictionary)
         do {
             let raw = try await speech.transcribe(samples: samples)
             guard !raw.isEmpty else { clearPending(); return }
@@ -1255,16 +1337,36 @@ public final class BackgroundRecorder: ObservableObject {
         lastSamples = samples
 
         let started = Date()
-        guard let key = SharedStore.groqAPIKey, !key.isEmpty else {
-            finish(error: "Add your Groq key in Dictator", retryable: false)
-            return
-        }
 
         // load(), not mergeFromCloud(): reading the words is all this needs, and
         // the cloud merge used to run (and write) on every single dictation.
         let dictionary = PersonalDictionary.load()
-        let speech = GroqTranscription(apiKey: key, biasTerms: dictionary.entries.map(\.canonical))
-        let cleaner = Cleaner(provider: GroqCleanup(apiKey: key), dictionary: dictionary)
+        let key = SharedStore.groqAPIKey ?? ""
+        let engine = SharedStore.transcriptionEngine
+
+        // Pick the transcription engine. On-device (Parakeet) is used when it is
+        // selected AND the model has finished loading; otherwise fall back to the
+        // cloud when a key is available, so a dictation during model download still
+        // works. Only error when neither path is possible.
+        let speech: SpeechProvider
+        if engine == .onDevice, modelStatus == .ready {
+            speech = localSpeech
+        } else if !key.isEmpty {
+            speech = GroqTranscription(apiKey: key, biasTerms: dictionary.entries.map(\.canonical))
+        } else if engine == .onDevice {
+            finish(error: "On-device model is still loading — try again in a moment", retryable: true)
+            return
+        } else {
+            finish(error: "Add your Groq key in Dictator", retryable: false)
+            return
+        }
+
+        // Cleanup (punctuation, mode, paragraphs) runs on Groq when a key exists;
+        // with no key (pure on-device free tier) it degrades to the deterministic
+        // dictionary pass. An on-device LLM cleanup is a later addition.
+        let cleaner = key.isEmpty
+            ? Cleaner(provider: nil, dictionary: dictionary)
+            : Cleaner(provider: GroqCleanup(apiKey: key), dictionary: dictionary)
 
         do {
             let raw = try await speech.transcribe(samples: samples)

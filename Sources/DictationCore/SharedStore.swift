@@ -173,6 +173,16 @@ public enum SharedStore {
         set { defaults?.set(newValue, forKey: "cleanupModel") }
     }
 
+    /// Which transcription engine to use. `.onDevice` runs Parakeet locally (free,
+    /// private, offline); `.cloud` sends audio to Groq (needs a key, best accuracy
+    /// on hard audio). Defaults to `.cloud` for now — the on-device path is new and
+    /// stays opt-in until it is proven on real devices, at which point this default
+    /// flips. The keyboard reads nothing here; transcription runs in the container app.
+    public static var transcriptionEngine: TranscriptionEngine {
+        get { TranscriptionEngine(rawValue: defaults?.string(forKey: "transcriptionEngine") ?? "") ?? .cloud }
+        set { defaults?.set(newValue.rawValue, forKey: "transcriptionEngine") }
+    }
+
     /// Set by the (now-reverted) 0.1.60 migration that forced the idle window to 1
     /// minute to get the user's music back sooner. 0.1.61 stopped touching music
     /// entirely, so that forced short window is no longer wanted; V2 below undoes it.

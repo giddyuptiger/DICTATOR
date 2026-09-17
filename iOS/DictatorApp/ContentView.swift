@@ -91,6 +91,7 @@ struct ContentView: View {
                     statusCard
                     turnButton
                     micHoldSection
+                    transcriptionSection
                     modeSection
                     vocabularySection
                     lastDictationSection
@@ -123,6 +124,7 @@ struct ContentView: View {
             selectedMode = DictationMode.current
             SharedStore.migrateMusicHoldIfNeeded()   // idempotent; ensures the picker shows the corrected value
             idleMinutes = SharedStore.idleReleaseMinutes
+            engine = SharedStore.transcriptionEngine
             refreshChecklist()
             dictionary.reload()
             if SharedStore.onboardingDone {
@@ -293,6 +295,7 @@ struct ContentView: View {
     // MARK: - How long to hold the microphone
 
     @State private var idleMinutes = SharedStore.idleReleaseMinutes
+    @State private var engine: TranscriptionEngine = SharedStore.transcriptionEngine
 
     /// The one honest trade in the product, made visible.
     ///
@@ -325,6 +328,41 @@ struct ContentView: View {
         default:
             let label = idleMinutes >= 60 ? "\(idleMinutes / 60) hours" : "\(idleMinutes) minutes"
             return "After \(label) without dictating, Dictator releases the microphone to save battery. Waking it again means opening this app and swiping back, so pick a longer window if that happens often. Dictator never turns your music down — it just records over it."
+        }
+    }
+
+    // MARK: - Transcription engine
+
+    private var transcriptionSection: some View {
+        section("Transcription") {
+            Picker("Engine", selection: $engine) {
+                Text("On-device").tag(TranscriptionEngine.onDevice)
+                Text("Cloud").tag(TranscriptionEngine.cloud)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: engine) { _, new in recorder.setTranscriptionEngine(new) }
+            Text(engineBlurb)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var engineBlurb: String {
+        switch engine {
+        case .onDevice:
+            switch recorder.modelStatus {
+            case .idle:
+                return "Transcribes privately on your iPhone — nothing is sent to the cloud, and it works offline. The speech model downloads once the first time you turn Dictator on."
+            case .downloading:
+                return "Downloading the on-device speech model… this happens once, then it works offline. Dictation uses the cloud in the meantime if a key is set."
+            case .ready:
+                return "Ready. Transcribing privately on your iPhone — nothing leaves your device, and it works offline."
+            case .failed(let e):
+                return "The on-device model couldn't load (\(e)). Falling back to the cloud if a Groq key is set; try turning Dictator off and on."
+            }
+        case .cloud:
+            return "Transcribes with Groq in the cloud (needs a Groq key). Best accuracy on noisy audio, accents, and proper nouns."
         }
     }
 

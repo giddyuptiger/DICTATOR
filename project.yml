@@ -33,7 +33,7 @@ settings:
     # Ratchet this on EVERY push. Xcode Cloud supplies the build number, but the
     # version is what TestFlight shows first, and a static one makes every
     # build look the same. 0.1.x until the first App Store release.
-    MARKETING_VERSION: "0.1.65"
+    MARKETING_VERSION: "0.1.66"
     CURRENT_PROJECT_VERSION: "1"
     # Set this to your Apple Developer Team ID, or pick the team in Xcode once.
     DEVELOPMENT_TEAM: W9K8HB89TY
@@ -66,12 +66,15 @@ targets:
     type: application
     platform: iOS
     sources:
+      # LocalParakeet is included here (unlike the keyboard): the container app has
+      # the memory budget to run on-device transcription, and FluidAudio is linked
+      # below for it. The keyboard extension still excludes it (48 MB ceiling).
       - path: Sources/DictationCore
-        excludes: ["LocalParakeet.swift"]
       - path: iOS/DictatorApp
     dependencies:
       - target: DictatorKeyboard
         embed: true
+      - package: FluidAudio
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: design.irons.dictator

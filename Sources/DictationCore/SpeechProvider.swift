@@ -18,6 +18,15 @@ public extension SpeechProvider {
     func prepare() async throws {}
 }
 
+/// The user's choice of transcription engine, stored in the App Group
+/// (`SharedStore.transcriptionEngine`).
+public enum TranscriptionEngine: String, Sendable, CaseIterable {
+    /// Parakeet on the Neural Engine, in the container app. Free, private, offline.
+    case onDevice
+    /// Groq Whisper in the cloud. Needs a key; best accuracy on hard audio.
+    case cloud
+}
+
 // MARK: - WAV
 
 /// Cloud speech APIs want a container, not raw floats. This is the smallest
