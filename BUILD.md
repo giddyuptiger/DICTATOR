@@ -382,6 +382,20 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.77 — better on-device accuracy on capable phones; status-card polish (2026-09-17)
+
+- Accuracy: on-device transcription now picks the Parakeet tier by device RAM — the
+  accurate 0.6B model (~900 MB, near cloud quality) on 6 GB+ phones, the compact
+  110M (~250 MB) on smaller devices. Should cut mishears like "Pot dog" → "Hot dog"
+  for most modern iPhones while staying safe on older ones. (Threshold ~5.4 GB since
+  `physicalMemory` reports under the nominal spec.)
+- Design: status card now tints faintly by state (green when ready, red when live)
+  and the status dot has a soft glow; card radius unified to 16. Uses the recolored
+  green logo (`design/logo.svg`).
+
+Next: App Attest on the backend (built as its own pass — unverifiable crypto, done
+carefully on-device rather than blind).
+
 ### 0.1.76 — green brand + logo (soundwave + sunglasses + mustache) (2026-09-17)
 
 New brand direction: a minimal green line-art mark (soundwave over sunglasses over a

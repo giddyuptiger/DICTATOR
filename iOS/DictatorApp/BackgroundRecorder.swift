@@ -457,11 +457,15 @@ public final class BackgroundRecorder: ObservableObject {
 
     private let audio = AudioEngineHost()
 
-    /// On-device transcription (Parakeet via FluidAudio), compact tier (~250 MB) so
-    /// it fits an iPhone's memory budget. Constructed cheaply here (no model load
-    /// until `prepare()`); prepared lazily when the on-device engine is selected.
-    /// Cloud (Groq) stays the default until on-device is proven on real devices.
-    private let localSpeech = LocalParakeet(tier: .compact)
+    /// On-device transcription (Parakeet via FluidAudio). Tier is chosen by device
+    /// RAM: the accurate 0.6B model (~900 MB, near cloud quality) on phones with the
+    /// headroom for it, the compact 110M model (~250 MB) on smaller devices so it
+    /// isn't jettisoned. `physicalMemory` reports a bit under the nominal spec, so a
+    /// ~5.4 GB threshold catches 6 GB+ phones (iPhone 14/15/16 and Pros). Constructed
+    /// cheaply here (no model load until `prepare()`).
+    private let localSpeech = LocalParakeet(
+        tier: ProcessInfo.processInfo.physicalMemory >= 5_400_000_000 ? .accurate : .compact
+    )
     private var captureStartedAt: Date?
     private var levelTimer: Timer?
     private var isWarming = false

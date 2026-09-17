@@ -200,7 +200,8 @@ struct ContentView: View {
             HStack(spacing: 10) {
                 Circle()
                     .fill(dotColor)
-                    .frame(width: 12, height: 12)
+                    .frame(width: 14, height: 14)
+                    .shadow(color: dotColor.opacity(0.6), radius: 4)
                 Text(statusHeadline).font(.headline)
                 Spacer()
                 Text(micLine)
@@ -218,8 +219,15 @@ struct ContentView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(dotColor.opacity(0.07))   // faint state tint (green ready, red live)
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     // Soft, muted accents instead of the saturated system colours, to match the
