@@ -13,9 +13,9 @@ kv_namespaces = [
 
 [vars]
 # Tunable, non-secret knobs. Adjust to taste.
-GLOBAL_DAILY_CAP = "50000"   # hard stop: total backend requests/day before 503
-DEVICE_RPM = "20"            # per-device requests/minute
-IP_RPM = "40"                # per-IP requests/minute
+GLOBAL_DAILY_CAP = "200000"  # hard stop: total backend requests/day before 503
+DEVICE_RPM = "60"            # per-device requests/minute
+IP_RPM = "300"               # per-IP requests/minute (headroom for shared Wi-Fi/NAT)
 
 # SECRET (never in this file). Set once with:
 #   npx wrangler secret put GROQ_API_KEY
