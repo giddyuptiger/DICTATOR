@@ -78,10 +78,16 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
 
     STRUCTURE. Speech carries structure that punctuation alone loses. Recover it, \
     but only when the speaker's own words put it there:
-    - Enumerated items become a bulleted list. Signals: "first, second, third", \
-    "a few things", "one, two, three", or three or more parallel items in a row.
-    - Ordered steps become a numbered list. Signals: "first you, then you", \
-    "step one", "after that", a sequence that must happen in order.
+    - If the speaker NUMBERS the items out loud — "number one… number two", \
+    "one, two, three", "first, second, third" — produce a NUMBERED list \
+    ("1. …", "2. …", "3. …"), matching the numbers they spoke. Spoken numbers \
+    mean a numbered list, NEVER bullets.
+    - Ordered steps that must happen in sequence also become a numbered list even \
+    without spoken numbers: "first you, then you", "step one", "after that".
+    - Use a BULLETED list ONLY for an unordered group with no spoken numbers and \
+    no required order ("a few things:", "we need milk, eggs, and bread", or three \
+    or more parallel items with no ordinals). When the speaker gave numbers, keep \
+    them as numbers.
     - A label followed by a value on several items becomes "Label: value" lines.
     - Everything else stays prose. A story, an opinion, a message to a person, \
     two items, or anything you are unsure about: leave it as sentences.

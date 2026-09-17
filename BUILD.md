@@ -382,6 +382,15 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.65 — spoken numbers make a numbered list, not bullets (2026-09-17)
+
+User dictated "number one… number two… number three" and it came out as bullet
+points. The STRUCTURE prompt lumped "first, second, third" and "one, two, three"
+under the BULLETED-list rule. Fixed: when the speaker says the numbers out loud
+("number one", "one, two, three", "first, second, third") the cleanup now produces
+a NUMBERED list ("1. 2. 3.") matching the spoken numbers; bullets are reserved for
+unordered groups with no spoken numbers.
+
 ### 0.1.64 — break long dictations into real paragraphs (2026-09-17)
 
 User: dictating long paragraphs and wants them broken into multiple, nicely
