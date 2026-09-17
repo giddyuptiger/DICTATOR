@@ -17,3 +17,4 @@ _to_delete/
 # Node deps (backend tooling)
 node_modules/
 .DS_Store
+asc_api_key.json
