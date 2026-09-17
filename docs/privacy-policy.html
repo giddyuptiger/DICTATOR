@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dictator — Privacy Policy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 720px; margin: 0 auto; padding: 40px 20px 80px;
+    color: #1c1c1e; background: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e6e6e6; background: #1c1c1e; }
+    a { color: #6ea8ff; }
+    .note { background: #2c2a1a; border-color: #6b5f2a; }
+  }
+  h1 { font-size: 2rem; margin-bottom: 0.2em; }
+  h2 { font-size: 1.25rem; margin-top: 1.8em; }
+  .meta { color: #8a8a8e; font-size: 0.95rem; }
+  a { color: #0a66ff; }
+  .note {
+    background: #fff8e1; border: 1px solid #e0c86a; border-radius: 10px;
+    padding: 12px 16px; font-size: 0.95rem; margin: 20px 0;
+  }
+  code { background: rgba(128,128,128,0.18); padding: 1px 5px; border-radius: 4px; }
+  footer { margin-top: 60px; color: #8a8a8e; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>Privacy Policy</h1>
+<p class="meta">
+  Dictator &middot; Effective date: <strong>September 17, 2026</strong><br>
+  Developer: <strong>[YOUR DEVELOPER / LEGAL NAME]</strong> &middot;
+  Contact: <strong>[YOUR SUPPORT EMAIL]</strong>
+</p>
+
+<p class="note">
+  ⚠️ <strong>Before you publish:</strong> replace the three bracketed placeholders
+  above (developer/legal name, support email) and review with a lawyer before you
+  charge money. This is a solid starting point written from how the app works, not
+  legal advice.
+</p>
+
+<p>
+  Dictator is a dictation keyboard for iPhone. This policy explains what it does and
+  does not do with your data. The short version: <strong>the free tier transcribes
+  entirely on your device and sends nothing anywhere.</strong>
+</p>
+
+<h2>What Dictator processes</h2>
+
+<p><strong>Your voice (audio).</strong></p>
+<ul>
+  <li><strong>On-device tier (free):</strong> your speech is transcribed entirely on
+    your iPhone using an on-device model. The audio never leaves your device and is
+    not sent to us or any third party.</li>
+  <li><strong>Cloud tier (premium):</strong> your audio is sent, over an encrypted
+    connection, to our transcription provider (<strong>Groq</strong>) to convert
+    speech to text, and a short text-cleanup step fixes punctuation and formatting.
+    The audio is used only to produce your transcript for that request and is not
+    stored by us afterward.</li>
+  <li><strong>Bring-your-own-key (optional):</strong> if you supply your own Groq API
+    key, your audio is sent directly from your device to Groq under your own account
+    and their terms; it does not pass through our servers.</li>
+</ul>
+
+<p><strong>Transcribed text.</strong> The resulting text is inserted where your
+cursor is. Your most recent transcript is cached locally on your device for
+convenience and is not transmitted to us.</p>
+
+<p><strong>Personal vocabulary.</strong> Words and names you add are stored locally
+on your device so your transcripts are spelled your way. They are not transmitted to
+us.</p>
+
+<p><strong>Diagnostics.</strong> An activity log is kept locally on your device to
+help you troubleshoot. It is not transmitted anywhere unless you choose to share it.</p>
+
+<p><strong>Payments (premium).</strong> Subscriptions are processed by
+<strong>Apple</strong> through in-app purchase; we never receive or store your
+payment details. We may use a subscription-management provider
+(<strong>RevenueCat</strong>) to confirm your subscription status. If you use Sign in
+with Apple, we receive only a stable anonymous identifier (and, if you choose, a
+relay email) to keep your subscription across devices.</p>
+
+<h2>What Dictator does NOT collect</h2>
+<p>We do not collect your name, contacts, location, photos, browsing history, or
+advertising identifiers, and we do not sell your data or use it for advertising.</p>
+
+<h2>Full Access keyboard</h2>
+<p>Dictator's keyboard requires "Full Access" so it can reach the network (for cloud
+transcription) and its own shared storage. A keyboard with Full Access is technically
+able to access text in the field you're typing in; Dictator uses this only to insert
+and edit your dictated text. We do not log, store, or transmit your keystrokes or the
+contents of your text fields.</p>
+
+<h2>Third-party services</h2>
+<ul>
+  <li><strong>Groq</strong> — cloud speech-to-text and text cleanup (cloud tier / BYOK).</li>
+  <li><strong>Apple</strong> — in-app purchases and, optionally, Sign in with Apple.</li>
+  <li><strong>RevenueCat</strong> — subscription status management (premium).</li>
+</ul>
+
+<h2>Data retention</h2>
+<p>Cloud audio is processed transiently and not retained by us after your transcript
+is returned. Local data (last transcript, vocabulary, logs, settings) stays on your
+device until you delete it or uninstall the app.</p>
+
+<h2>Security</h2>
+<p>Network requests use encrypted connections (HTTPS/TLS). On the cloud tier, our
+transcription API key is held only on our servers, never in the app.</p>
+
+<h2>Your rights</h2>
+<p>Because the free tier keeps your data on your device and we collect very little
+otherwise, there is little for us to hold. To ask about, access, or delete any data
+associated with a premium account, contact us at <strong>[YOUR SUPPORT EMAIL]</strong>.
+Depending on where you live (e.g. EEA/UK under GDPR, California under CCPA), you may
+have rights to access or delete your data; we will honor applicable requests.</p>
+
+<h2>Children</h2>
+<p>Dictator is not directed to children under 13 and does not knowingly collect data
+from them.</p>
+
+<h2>Changes</h2>
+<p>We may update this policy; we will post the new version with a new effective date.</p>
+
+<h2>Contact</h2>
+<p>[YOUR DEVELOPER / LEGAL NAME] — [YOUR SUPPORT EMAIL]</p>
+
+<footer>
+  <a href="index.html">Dictator</a> &middot; <a href="terms.html">Terms of Service</a>
+</footer>
+
+</body>
+</html>
