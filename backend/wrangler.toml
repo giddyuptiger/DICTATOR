@@ -5,12 +5,15 @@ name = "dictator-backend"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 
-# KV namespace for rate-limit + spend counters. Create it once with:
-#   npx wrangler kv namespace create RL
-# then paste the returned id below (and a preview_id for `wrangler dev`).
-kv_namespaces = [
-  { binding = "RL", id = "REPLACE_WITH_KV_ID", preview_id = "REPLACE_WITH_PREVIEW_KV_ID" }
-]
+# KV namespace for rate-limit + spend counters. OPTIONAL — the Worker runs fine
+# without it (rate limiting is simply disabled). To enable it later, list your
+# existing namespaces with `npx wrangler kv namespace list`, then uncomment the
+# block below and paste the two ids (dictator-backend-RL -> id,
+# dictator-backend-RL_preview -> preview_id):
+#
+# kv_namespaces = [
+#   { binding = "RL", id = "PASTE_ID", preview_id = "PASTE_PREVIEW_ID" }
+# ]
 
 [vars]
 # Tunable, non-secret knobs. Adjust to taste.
