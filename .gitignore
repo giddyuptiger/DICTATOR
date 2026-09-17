@@ -13,3 +13,7 @@ Packages/
 Sources/DictationCore/Secrets.swift
 
 _to_delete/
+
+# Node deps (backend tooling)
+node_modules/
+.DS_Store
