@@ -5,15 +5,11 @@ name = "dictator-backend"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 
-# KV namespace for rate-limit + spend counters. OPTIONAL — the Worker runs fine
-# without it (rate limiting is simply disabled). To enable it later, list your
-# existing namespaces with `npx wrangler kv namespace list`, then uncomment the
-# block below and paste the two ids (dictator-backend-RL -> id,
-# dictator-backend-RL_preview -> preview_id):
-#
-# kv_namespaces = [
-#   { binding = "RL", id = "PASTE_ID", preview_id = "PASTE_PREVIEW_ID" }
-# ]
+# KV namespace for rate-limit + spend counters. Enabled: rate limiting + the global
+# daily spend cap are active.
+kv_namespaces = [
+  { binding = "RL", id = "ccb9a2b8c1e643848808f8d8526a58b3", preview_id = "629c4d61c6204283a1f5e6ba106bab02" }
+]
 
 [vars]
 # Tunable, non-secret knobs. Adjust to taste.
