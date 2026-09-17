@@ -382,6 +382,19 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.63 — shorter swipe bar so its middle lands in the gesture zone (2026-09-17)
+
+User: "Make the bar maybe half the height. You have to be really on the bottom of
+the screen for the swipe to work, and the user is going to swipe in the MIDDLE of
+the bar — we don't want the bar anywhere the swipe won't fire."
+
+Right call: the system swipe-to-previous-app gesture only fires very near the
+bottom edge, so a tall bar invites a swipe in its too-high middle where nothing
+happens. Roughly halved the bar (~118pt → ~65pt): smaller label
+(.subheadline), smaller fingertip/track (34 → 20), tighter padding (top 18 → 8,
+bottom 34 → 14). The whole bar — and the fingertip line the eye follows — now sits
+low, so a swipe through its middle lands in the zone where the gesture works.
+
 ### 0.1.62 — wake screen: fingertip that travels the swipe path; guaranteed no scroll (2026-09-17)
 
 User: "Can we animate that bar and have it swipe along with you? Make it really

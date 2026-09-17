@@ -579,13 +579,18 @@ private struct SwipeHintBar: View {
     private let period: Double = 1.8
 
     var body: some View {
-        VStack(spacing: 12) {
+        // Kept deliberately SHORT. The system swipe-to-previous-app gesture only
+        // fires very near the bottom edge, so a tall bar invites the user to swipe
+        // in its (too-high) middle, where nothing happens. Halving the height drops
+        // the whole bar — and the fingertip line the eye follows — down into the
+        // zone where the swipe actually works.
+        VStack(spacing: 5) {
             Text("Swipe back to your app")
-                .font(.headline)
+                .font(.subheadline.bold())
                 .foregroundStyle(.white)
 
             GeometryReader { geo in
-                let dotSize: CGFloat = 34
+                let dotSize: CGFloat = 20
                 let inset: CGFloat = 8
                 let travel = max(geo.size.width - dotSize - inset * 2, 0)
 
@@ -602,17 +607,16 @@ private struct SwipeHintBar: View {
                         Capsule()
                             .strokeBorder(.white.opacity(0.28),
                                           style: StrokeStyle(lineWidth: 2, dash: [3, 5]))
-                            .frame(height: 4)
+                            .frame(height: 3)
                             .frame(maxWidth: .infinity)
-                            .offset(y: 0)
 
                         // Motion trail: two ghosts lagging behind the fingertip.
                         fingertip(dotSize * 0.82)
                             .opacity(alpha * 0.18)
-                            .offset(x: max(x - 22, inset))
+                            .offset(x: max(x - dotSize * 0.65, inset))
                         fingertip(dotSize * 0.9)
                             .opacity(alpha * 0.32)
-                            .offset(x: max(x - 11, inset))
+                            .offset(x: max(x - dotSize * 0.33, inset))
 
                         // The fingertip itself.
                         fingertip(dotSize)
@@ -623,12 +627,12 @@ private struct SwipeHintBar: View {
                 }
                 .frame(height: dotSize)
             }
-            .frame(height: 34)
+            .frame(height: 20)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 18)
+        .padding(.top, 8)
         .padding(.horizontal, 20)
-        .padding(.bottom, 34) // clears the home indicator
+        .padding(.bottom, 14) // sits low, still clear of the home indicator
         .background(
             LinearGradient(colors: [top, bottom], startPoint: .leading, endPoint: .trailing)
         )
