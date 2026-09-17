@@ -1212,19 +1212,17 @@ public final class BackgroundRecorder: ObservableObject {
     /// prefers Apple's local model (free, private, offline) when available, then
     /// Groq if a key exists; on cloud it uses Groq; with neither it degrades to the
     /// deterministic dictionary pass. FallbackCleanupProvider tries them in order.
-    private func makeCleaner(engineOnDevice: Bool, key: String, dictionary: PersonalDictionary) -> Cleaner {
-        var chain: [CleanupProvider] = []
-        if engineOnDevice, AppleOnDeviceCleanup.isAvailable {
-            chain.append(AppleOnDeviceCleanup())
-        }
-        if !key.isEmpty {
-            chain.append(GroqCleanup(apiKey: key))
-        }
-        switch chain.count {
-        case 0:  return Cleaner(provider: nil, dictionary: dictionary)
-        case 1:  return Cleaner(provider: chain[0], dictionary: dictionary)
-        default: return Cleaner(provider: FallbackCleanupProvider(chain), dictionary: dictionary)
-        }
+    private func makeCleaner(key: String, dictionary: PersonalDictionary) -> Cleaner {
+        // Apple's on-device cleanup (AppleOnDeviceCleanup) is implemented but NOT
+        // wired in: on-device testing (0.1.70) showed its small model too often
+        // ANSWERED the transcript instead of reformatting it, ignored the mode
+        // rules, and was slow (3-4s vs sub-second transcription). Until Apple's
+        // model improves or we tune it further, cleanup uses Groq when a key exists,
+        // otherwise the deterministic dictionary pass. On-device TRANSCRIPTION is
+        // unaffected (fast, accurate) — this only concerns the cleanup step.
+        key.isEmpty
+            ? Cleaner(provider: nil, dictionary: dictionary)
+            : Cleaner(provider: GroqCleanup(apiKey: key), dictionary: dictionary)
     }
 
     /// Re-runs transcription on the audio kept from a failed attempt. Wired to
@@ -1269,7 +1267,7 @@ public final class BackgroundRecorder: ObservableObject {
         } else {
             return   // no engine available; leave the file for a later launch
         }
-        let cleaner = makeCleaner(engineOnDevice: onDeviceReady, key: key, dictionary: dictionary)
+        let cleaner = makeCleaner(key: key, dictionary: dictionary)
         do {
             let raw = try await speech.transcribe(samples: samples)
             guard !raw.isEmpty else { clearPending(); return }
@@ -1381,7 +1379,7 @@ public final class BackgroundRecorder: ObservableObject {
         // Cleanup (punctuation, mode, paragraphs): on-device engine prefers Apple's
         // local model when available, then Groq if a key exists; cloud uses Groq;
         // with neither it degrades to the deterministic dictionary pass.
-        let cleaner = makeCleaner(engineOnDevice: engine == .onDevice, key: key, dictionary: dictionary)
+        let cleaner = makeCleaner(key: key, dictionary: dictionary)
 
         do {
             let raw = try await speech.transcribe(samples: samples)

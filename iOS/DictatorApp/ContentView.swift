@@ -357,7 +357,7 @@ struct ContentView: View {
             case .downloading:
                 return "Downloading the on-device speech model… this happens once, then it works offline. Dictation uses the cloud in the meantime if a key is set."
             case .ready:
-                return "Ready — transcribing on your iPhone. On iOS 26+ the cleanup runs on-device too, so nothing leaves your device; on older iPhones the cleanup step uses the cloud if a key is set."
+                return "Ready — your speech is transcribed on your iPhone. The formatting/cleanup step still uses the cloud for now (it's fast and cheap); a fully on-device cleanup is coming once it's good enough."
             case .failed(let e):
                 return "The on-device model couldn't load (\(e)). Falling back to the cloud if a Groq key is set; try turning Dictator off and on."
             }

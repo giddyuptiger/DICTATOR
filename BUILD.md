@@ -382,6 +382,24 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.71 — drop on-device cleanup (not good enough); keep cloud cleanup (2026-09-17)
+
+Device verdict on 0.1.70: Apple's on-device cleanup is unusable for this — it
+answered the transcript ~1/3 of the time, ignored the mode/format rules the rest,
+and was slow (3-4s vs sub-second transcription). The short prompt + guards stopped
+the worst garbage, but the quality/speed just aren't there yet.
+
+Decision: stop using Apple on-device cleanup. Cleanup uses Groq when a key exists
+(fast, follows the rules — the proven combo from 0.1.66), else the deterministic
+dictionary pass. On-device TRANSCRIPTION is unchanged (fast, accurate, private);
+this only concerns the cleanup step, and it also fixes the 3-4s speed regression
+(that was Apple's slow model). AppleOnDeviceCleanup stays in the tree, unwired, for
+when Apple's model improves. Status text updated to say cleanup uses the cloud.
+
+Open item for the free tier: good cleanup currently needs the cloud (Groq/key), so
+a fully-offline free tier needs either a cheap backend cleanup proxy, BYOK, or a
+future on-device cleanup. Tracked for Phase 1/2.
+
 ### 0.1.70 — fix on-device cleanup rambling; finalize legal pages (2026-09-17)
 
 Device report on 0.1.69: on-device cleanup returned essays — Apple's model ANSWERED
