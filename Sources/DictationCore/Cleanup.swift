@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 /// Turns raw transcript into text you would have typed: filler words gone,
 /// punctuation right, your vocabulary spelled correctly, tone matched to wherever
@@ -236,18 +239,67 @@ public struct GroqCleanup: CleanupProvider {
     }
 }
 
+// MARK: - Fallback chain
+
+/// Tries several cleanup providers in order, returning the first that produces a
+/// non-empty result; throws only if they all fail. This is how the on-device tier
+/// prefers Apple's local model but still degrades to Groq (when a key exists) and,
+/// via Cleaner, to the raw transcript.
+public struct FallbackCleanupProvider: CleanupProvider {
+    private let providers: [CleanupProvider]
+    public init(_ providers: [CleanupProvider]) { self.providers = providers }
+
+    public func clean(_ raw: String, system: String) async throws -> String {
+        var lastError: Error = CleanupUnavailable()
+        for provider in providers {
+            do {
+                let out = try await provider.clean(raw, system: system)
+                if !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return out }
+            } catch {
+                lastError = error
+                continue
+            }
+        }
+        throw lastError
+    }
+}
+
+/// Thrown when a cleanup provider isn't usable (e.g. Apple's on-device model on an
+/// OS older than 26, or not enabled on the device).
+public struct CleanupUnavailable: Error { public init() {} }
+
 // MARK: - Apple on-device
 
-/// On iOS 26 / macOS 26 and later, Apple's on-device Foundation Model can do the
-/// cleanup with no network and no cost. Slower than Groq but fully private.
-/// Left as a stub because the import is OS-gated; fill in when you target 26+.
+/// On iOS 26 / macOS 26 and later, Apple's built-in on-device model (Foundation
+/// Models) does the cleanup with no network, no cost, and full privacy — the free
+/// tier's cleanup step. When the model isn't available (older OS, not enabled, or a
+/// guardrail refusal) `clean` throws, so the caller falls back to Groq or the
+/// dictionary pass. `isAvailable` is checked before this provider is ever chosen.
 public struct AppleOnDeviceCleanup: CleanupProvider {
     public init() {}
 
+    /// True only when the OS is new enough AND the system model is actually usable
+    /// on this device (downloaded, enabled, not restricted).
+    public static var isAvailable: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            if case .available = SystemLanguageModel.default.availability { return true }
+        }
+        #endif
+        return false
+    }
+
     public func clean(_ raw: String, system: String) async throws -> String {
-        // import FoundationModels
-        // let session = LanguageModelSession(instructions: system)
-        // return try await session.respond(to: raw).content
-        return raw
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            // Instructions come from the tone/mode prompt; the transcript is the
+            // prompt to reformat. The @InstructionsBuilder closure accepts our
+            // runtime String.
+            let session = LanguageModelSession(instructions: { system })
+            let response = try await session.respond(to: raw)
+            return response.content
+        }
+        #endif
+        throw CleanupUnavailable()
     }
 }

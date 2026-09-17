@@ -382,6 +382,30 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.69 — on-device cleanup (Apple Foundation Models): the truly-free tier (2026-09-17)
+
+Makes the free tier need Groq for NOTHING. On-device transcription (0.1.66) removed
+the expensive audio call; this removes the last cloud dependency — the cleanup step —
+by running it on Apple's built-in on-device model (Foundation Models, iOS 26+).
+
+- `AppleOnDeviceCleanup` is implemented (was a stub): guarded by
+  `#if canImport(FoundationModels)` and `#available(iOS 26/macOS 26)`, with a static
+  `isAvailable` that checks `SystemLanguageModel.default.availability` so we never
+  pick an unusable model.
+- New `FallbackCleanupProvider` tries providers in order. The recorder now builds a
+  chain via `makeCleaner(...)`: on the on-device engine, prefer Apple on-device
+  cleanup when available, then Groq if a key exists, then (via Cleaner) the
+  dictionary-only pass. Cloud engine still uses Groq. So on iOS 26 the free tier is
+  fully offline/$0/no-key; on older iPhones cleanup falls back to cloud (if a key is
+  set) exactly as before.
+- Wired into both the live and crash-recovery transcription paths; engine status
+  text updated to be honest about the iOS 26 distinction.
+
+CANNOT be verified here: Apple's FoundationModels API is new and unavailable in this
+sandbox, so this is the build most likely to need an API-signature fix. The
+canImport/available guards mean older toolchains/OSes fall back to cloud; if Xcode
+Cloud errors on the FoundationModels calls, it's a localized fix in Cleanup.swift.
+
 ### 0.1.68 — cleanup: clean stutters/false starts, but don't gut content (2026-09-17)
 
 Correction to 0.1.67, which over-swung: removing false starts and stutters is a
