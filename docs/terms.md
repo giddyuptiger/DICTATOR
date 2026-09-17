@@ -1,8 +1,8 @@
 # Terms of Service — Dictator
 
-**Effective date:** [FILL IN]
-**Developer:** [YOUR DEVELOPER / LEGAL NAME]
-**Contact:** [YOUR SUPPORT EMAIL]
+**Effective date:** September 17, 2026
+**Developer:** Jeremy Irons
+**Contact:** support@irons.la
 
 > ⚠️ **Draft.** Starting point, not legal advice. Have it reviewed before you
 > charge money, and fill in every [BRACKETED] placeholder — especially the
@@ -58,7 +58,7 @@ subject to their own terms.
 
 ## 7. Limitation of liability
 
-To the fullest extent permitted by law, [YOUR DEVELOPER / LEGAL NAME] is not liable
+To the fullest extent permitted by law, Jeremy Irons is not liable
 for indirect, incidental, or consequential damages arising from your use of the
 App. Our total liability for any claim is limited to the amount you paid for the
 App in the 12 months before the claim.
@@ -86,4 +86,4 @@ Terms.
 
 ## 12. Contact
 
-[YOUR DEVELOPER / LEGAL NAME] — [YOUR SUPPORT EMAIL]
+Jeremy Irons — support@irons.la

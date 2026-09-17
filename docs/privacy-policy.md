@@ -1,8 +1,8 @@
 # Privacy Policy — Dictator
 
-**Effective date:** [FILL IN]
-**Developer:** [YOUR DEVELOPER / LEGAL NAME]
-**Contact:** [YOUR SUPPORT EMAIL]
+**Effective date:** September 17, 2026
+**Developer:** Jeremy Irons
+**Contact:** support@irons.la
 
 > ⚠️ **Draft.** This is a solid starting point written from how the app actually
 > works, but it is not legal advice. Have it reviewed before you charge money or
@@ -80,7 +80,7 @@ transcription API key is held only on our servers, never in the app.
 
 Because the free tier keeps your data on your device and we collect very little
 otherwise, there is little for us to hold. To ask about, access, or delete any
-data associated with a premium account, contact us at [YOUR SUPPORT EMAIL].
+data associated with a premium account, contact us at support@irons.la.
 Depending on where you live (e.g. EEA/UK under GDPR, California under CCPA), you
 may have rights to access or delete your data; we will honor applicable requests.
 
@@ -95,4 +95,4 @@ We may update this policy; we will post the new version with a new effective dat
 
 ## Contact
 
-[YOUR DEVELOPER / LEGAL NAME] — [YOUR SUPPORT EMAIL]
+Jeremy Irons — support@irons.la
