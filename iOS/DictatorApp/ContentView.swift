@@ -81,12 +81,10 @@ struct ContentView: View {
     @State private var fullAccess = false
 
     var body: some View {
+        ZStack {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    if recorder.wokeForDictation {
-                        wakeReadyBanner
-                    }
                     statusCard
                     turnButton
                     micHoldSection
@@ -167,35 +165,23 @@ struct ContentView: View {
                 break
             }
         }
+
+            // Full-screen wake screen. When the keyboard wakes the app to make it
+            // resident (dictator://dictate), we don't want to dump the user into
+            // the settings UI — they want to get back to their app and dictate.
+            // So we cover everything with a calm, mostly blank screen: the logo,
+            // one line of instruction, and a bright bar along the bottom pointing
+            // at the home-swipe gesture that returns them to their previous app.
+            if recorder.wokeForDictation {
+                WakeScreen(onDismiss: { recorder.wokeForDictation = false })
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: recorder.wokeForDictation)
     }
 
     // MARK: - Status
-
-    /// Shown once, right after the keyboard woke the app. iOS has no way for an
-    /// app to send you back to where you came from, so we tell the user to tap the
-    /// system "‹ back" button (top-left) — and, crucially, that this is a one-time
-    /// step: once Dictator is running it stays ready and the keyboard reaches it in
-    /// place, so they won't have to leave their app again.
-    private var wakeReadyBanner: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title2)
-                .foregroundStyle(Self.pastelGreen)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Head back to your app")
-                    .font(.headline)
-                Text("Tap ‹ back at the top-left to return to your app, then tap the mic. You only have to do this once — Dictator now stays ready in the background.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Self.pastelGreen.opacity(0.14))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-    }
 
     private var statusCard: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -493,5 +479,106 @@ struct ContentView: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Wake screen
+
+/// The screen the keyboard drops you on when it wakes Dictator to make it
+/// resident. This is the Wispr Flow move: instead of the settings UI, show a
+/// calm, mostly blank screen whose only job is to point you back to the app you
+/// came from. iOS won't let an app return you automatically, so we teach the
+/// one gesture that does — the swipe along the bottom home edge that jumps to the
+/// previous app — with a bright bar and an arrow that nudges toward it.
+private struct WakeScreen: View {
+    let onDismiss: () -> Void
+
+    @State private var nudge = false
+
+    // Dictator's purple, matched to the app icon / keyboard accent.
+    private static let brandTop    = Color(red: 0.42, green: 0.34, blue: 0.86)
+    private static let brandBottom = Color(red: 0.60, green: 0.38, blue: 0.92)
+
+    var body: some View {
+        ZStack {
+            Color(.systemBackground)
+                .ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                Spacer()
+
+                // Logo mark: rounded square with the mic glyph, in the brand
+                // gradient. Stands in for the app icon on this blank canvas.
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Self.brandTop, Self.brandBottom],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 116, height: 116)
+                    .overlay(
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 52, weight: .semibold))
+                            .foregroundStyle(.white)
+                    )
+                    .shadow(color: Self.brandTop.opacity(0.35), radius: 18, y: 8)
+
+                VStack(spacing: 10) {
+                    Text("Dictator is ready")
+                        .font(.title2.bold())
+                    Text("Swipe back to the app you were in, then tap the mic to dictate.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 32)
+                }
+
+                Spacer()
+
+                // A quiet escape hatch so the user is never trapped on this
+                // screen if they'd rather stay in the app.
+                Button("Stay in Dictator", action: onDismiss)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 8)
+            }
+
+            // The colored bar hugging the bottom edge, right where the home-swipe
+            // gesture lives. The arrow nudges left-to-right to mime the swipe.
+            VStack {
+                Spacer()
+                HStack(spacing: 12) {
+                    Text("Swipe")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    Image(systemName: "arrow.right")
+                        .font(.headline.bold())
+                        .foregroundStyle(.white)
+                        .offset(x: nudge ? 10 : -4)
+                        .animation(
+                            .easeInOut(duration: 0.7).repeatForever(autoreverses: true),
+                            value: nudge
+                        )
+                    Text("back to your app")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 20)
+                .padding(.bottom, 34) // clears the home indicator
+                .background(
+                    LinearGradient(
+                        colors: [Self.brandTop, Self.brandBottom],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+            }
+            .ignoresSafeArea(edges: .bottom)
+        }
+        .onAppear { nudge = true }
     }
 }

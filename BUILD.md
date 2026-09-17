@@ -382,6 +382,28 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.59 — Wispr-style wake screen: "swipe back to your app" (2026-09-17)
+
+When the keyboard wakes Dictator to make it resident (dictator://dictate), the
+old app dropped the user straight into the settings UI with a small green banner.
+That's the wrong thing to look at: the user's goal is to get back to the app they
+were typing in, not to read settings.
+
+Now, exactly like Wispr Flow, waking the app shows a full-screen, mostly blank
+WakeScreen: the Dictator logo mark (mic glyph on the brand-purple gradient), one
+line — "Dictator is ready" / "Swipe back to the app you were in, then tap the mic
+to dictate." — and a bright purple bar hugging the bottom home edge reading
+"Swipe → back to your app", with the arrow nudging left-to-right to mime the
+home-swipe gesture that iOS uses to jump to the previous app. A quiet "Stay in
+Dictator" button dismisses it so the user is never trapped.
+
+- New `WakeScreen` view in ContentView.swift, overlaid in a ZStack above the
+  NavigationStack, gated on `recorder.wokeForDictation`, fading in/out.
+- Removed the old `wakeReadyBanner` (the small in-scroll green pill it replaces).
+- iOS cannot return you to the previous app programmatically (removed in iOS
+  26.4; even Wispr lost it), so teaching the one sanctioned gesture — the
+  bottom-edge swipe — is the honest, App-Store-safe answer.
+
 ### 0.1.58 — fix the flickering "Open Dictator" pill (mic-dead != app-alive) (2026-09-17)
 
 Device report: the "Open Dictator once to restart the mic" pill flickered and
