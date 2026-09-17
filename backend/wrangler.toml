@@ -1,0 +1,22 @@
+# Cloudflare Worker config for the Dictator backend.
+# Deploy: `cd backend && npx wrangler deploy`  (see README.md for first-time setup)
+
+name = "dictator-backend"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# KV namespace for rate-limit + spend counters. Create it once with:
+#   npx wrangler kv namespace create RL
+# then paste the returned id below (and a preview_id for `wrangler dev`).
+kv_namespaces = [
+  { binding = "RL", id = "REPLACE_WITH_KV_ID", preview_id = "REPLACE_WITH_PREVIEW_KV_ID" }
+]
+
+[vars]
+# Tunable, non-secret knobs. Adjust to taste.
+GLOBAL_DAILY_CAP = "50000"   # hard stop: total backend requests/day before 503
+DEVICE_RPM = "20"            # per-device requests/minute
+IP_RPM = "40"                # per-IP requests/minute
+
+# SECRET (never in this file). Set once with:
+#   npx wrangler secret put GROQ_API_KEY
