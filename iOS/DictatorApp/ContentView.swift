@@ -489,13 +489,20 @@ struct ContentView: View {
 /// The screen the keyboard drops you on when it wakes Dictator to make it
 /// resident. This is the Wispr Flow move: instead of the settings UI, show a
 /// calm, mostly blank screen whose only job is to point you back to the app you
-/// came from. iOS won't let an app return you automatically, so we teach the
-/// one gesture that does — the swipe along the bottom home edge that jumps to the
-/// previous app — with a bright bar and an arrow that nudges toward it.
+/// came from. iOS won't let an app return you automatically, so we teach the one
+/// gesture that does — the swipe along the bottom home edge that jumps to the
+/// previous app.
+///
+/// Two things matter here and both are deliberate:
+///  1. NOTHING on this screen scrolls. A scroll view sitting on the bottom edge
+///     fights the home-swipe gesture and makes iOS demand two swipes, which is
+///     exactly the "swipe back is next to impossible" the user hit on the
+///     scrolling settings page. This is a plain ZStack — no ScrollView anywhere —
+///     so the bottom edge is clear and one swipe works.
+///  2. The bottom bar doesn't just point; a fingertip actually travels the swipe
+///     path left→right, over and over, so it's obvious what to physically do.
 private struct WakeScreen: View {
     let onDismiss: () -> Void
-
-    @State private var nudge = false
 
     // Dictator's purple, matched to the app icon / keyboard accent.
     private static let brandTop    = Color(red: 0.42, green: 0.34, blue: 0.86)
@@ -549,38 +556,108 @@ private struct WakeScreen: View {
             }
 
             // The colored bar hugging the bottom edge, right where the home-swipe
-            // gesture lives. The arrow nudges left-to-right to mime the swipe.
+            // gesture lives. A fingertip travels the whole width to demonstrate.
             VStack {
                 Spacer()
-                HStack(spacing: 12) {
-                    Text("Swipe")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                    Image(systemName: "arrow.right")
-                        .font(.headline.bold())
-                        .foregroundStyle(.white)
-                        .offset(x: nudge ? 10 : -4)
-                        .animation(
-                            .easeInOut(duration: 0.7).repeatForever(autoreverses: true),
-                            value: nudge
-                        )
-                    Text("back to your app")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 20)
-                .padding(.bottom, 34) // clears the home indicator
-                .background(
-                    LinearGradient(
-                        colors: [Self.brandTop, Self.brandBottom],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
+                SwipeHintBar(top: Self.brandTop, bottom: Self.brandBottom)
             }
             .ignoresSafeArea(edges: .bottom)
         }
-        .onAppear { nudge = true }
+    }
+}
+
+/// The bottom "Swipe back to your app" bar with a fingertip that continuously
+/// glides left→right along the bar, trailing a soft motion blur and fading out
+/// at each end so the loop never snaps. Driven by TimelineView so the motion is
+/// frame-smooth and self-looping (no state juggling), and GeometryReader so the
+/// fingertip travels the bar's real width on any device.
+private struct SwipeHintBar: View {
+    let top: Color
+    let bottom: Color
+
+    /// One full traverse, in seconds. Unhurried enough to read as "drag", not "flick".
+    private let period: Double = 1.8
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Swipe back to your app")
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            GeometryReader { geo in
+                let dotSize: CGFloat = 34
+                let inset: CGFloat = 8
+                let travel = max(geo.size.width - dotSize - inset * 2, 0)
+
+                TimelineView(.animation) { timeline in
+                    let now = timeline.date.timeIntervalSinceReferenceDate
+                    let t = now.truncatingRemainder(dividingBy: period) / period // 0…1
+                    let eased = Self.easeInOut(t)
+                    let x = inset + travel * eased
+                    let alpha = Self.edgeFade(t)
+
+                    ZStack(alignment: .leading) {
+                        // Faint dashed track the fingertip runs along, so the path
+                        // reads even at the instant the dot has faded out.
+                        Capsule()
+                            .strokeBorder(.white.opacity(0.28),
+                                          style: StrokeStyle(lineWidth: 2, dash: [3, 5]))
+                            .frame(height: 4)
+                            .frame(maxWidth: .infinity)
+                            .offset(y: 0)
+
+                        // Motion trail: two ghosts lagging behind the fingertip.
+                        fingertip(dotSize * 0.82)
+                            .opacity(alpha * 0.18)
+                            .offset(x: max(x - 22, inset))
+                        fingertip(dotSize * 0.9)
+                            .opacity(alpha * 0.32)
+                            .offset(x: max(x - 11, inset))
+
+                        // The fingertip itself.
+                        fingertip(dotSize)
+                            .opacity(alpha)
+                            .offset(x: x)
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+                .frame(height: dotSize)
+            }
+            .frame(height: 34)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 18)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 34) // clears the home indicator
+        .background(
+            LinearGradient(colors: [top, bottom], startPoint: .leading, endPoint: .trailing)
+        )
+    }
+
+    /// A white puck with a subtle chevron, reading as a fingertip on the track.
+    private func fingertip(_ size: CGFloat) -> some View {
+        Circle()
+            .fill(.white)
+            .frame(width: size, height: size)
+            .overlay(
+                Image(systemName: "chevron.right")
+                    .font(.system(size: size * 0.42, weight: .bold))
+                    .foregroundStyle(bottom)
+            )
+            .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
+    }
+
+    /// Smooth start/stop so the drag accelerates and eases in, like a real swipe.
+    private static func easeInOut(_ t: Double) -> CGFloat {
+        CGFloat(t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2)
+    }
+
+    /// Fade the fingertip in over the first sliver and out over the last, so the
+    /// wrap from the right edge back to the left is never visible as a jump.
+    private static func edgeFade(_ t: Double) -> Double {
+        let edge = 0.14
+        if t < edge { return t / edge }
+        if t > 1 - edge { return (1 - t) / edge }
+        return 1
     }
 }

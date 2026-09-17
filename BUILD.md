@@ -382,6 +382,28 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.62 — wake screen: fingertip that travels the swipe path; guaranteed no scroll (2026-09-17)
+
+User: "Can we animate that bar and have it swipe along with you? Make it really
+obvious." And: "If the page scrolls at all, the swipe back is next to impossible —
+make sure the page doesn't scroll."
+
+Both are the same underlying point — make the return gesture unmistakable and
+unobstructed:
+
+- New `SwipeHintBar`: the bottom bar now shows a white fingertip puck that glides
+  the full width of the bar left→right, continuously, with a soft two-ghost motion
+  trail and a faint dashed track it runs along. It fades in/out at each end so the
+  loop never snaps. Driven by `TimelineView(.animation)` (frame-smooth, self-
+  looping, stops when the screen goes away) and `GeometryReader` (travels the real
+  bar width on any device). Replaces the little nudging arrow.
+- Scroll conflict: a scroll view on the bottom edge fights the home-swipe gesture
+  and makes iOS demand two swipes — that's the "impossible swipe" the user hit.
+  The wake screen is a plain `ZStack` with NO scroll view, opaque, on top with
+  `zIndex(1)`, so it fully covers the scrolling settings page and leaves the bottom
+  edge clear. Documented the no-scroll requirement in the view so it isn't
+  reintroduced.
+
 ### 0.1.61 — never touch the user's music: record over it, don't duck it (2026-09-17)
 
 User's call, and the right one: "What Wispr Flow does is it just doesn't touch
