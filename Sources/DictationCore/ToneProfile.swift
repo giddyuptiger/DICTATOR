@@ -65,6 +65,17 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     If the speaker asks a question, write the question down.
     - Preserve the speaker's voice and word choice. You are a typist, not an editor.
 
+    PARAGRAPHS. A long dictation is almost never one paragraph. If the transcript \
+    runs to several sentences that move across more than one thought, break it into \
+    paragraphs separated by a blank line — do not return a wall of text. Start a \
+    new paragraph where the topic, time, or subject shifts, or where the speaker \
+    signals a turn ("another thing", "also", "so anyway", "on top of that", "and \
+    then", "the other thing is"). Aim for paragraphs of roughly two to four \
+    sentences. BUT do not over-split: two or three sentences all on one point stay \
+    together, and a short dictation or a brief chat message stays a single \
+    paragraph. Paragraph breaks are for genuinely long, multi-topic speech; when in \
+    doubt on a short message, keep it as one.
+
     STRUCTURE. Speech carries structure that punctuation alone loses. Recover it, \
     but only when the speaker's own words put it there:
     - Enumerated items become a bulleted list. Signals: "first, second, third", \
@@ -107,6 +118,8 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
         unless spoken. Keep it under-punctuated rather than formal: it is a chat message.
         Almost never use lists here. A chat message with bullet points reads as a \
         memo; only use them if the speaker explicitly asks for a list.
+        Prefer to keep a chat message as one paragraph; only break into paragraphs \
+        if the message is genuinely long and clearly covers separate topics.
         """
     )
 

@@ -382,6 +382,21 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.64 — break long dictations into real paragraphs (2026-09-17)
+
+User: dictating long paragraphs and wants them broken into multiple, nicely
+formatted paragraphs instead of one wall of text.
+
+The base cleanup prompt already mentioned "paragraph breaks" in passing, but it
+was weak and buried, so long dictations came back as a single block. Added an
+explicit PARAGRAPHS rule to the base prompt: a long, multi-topic dictation is
+broken into paragraphs (blank line between) at topic/time/subject shifts and turn
+signals ("another thing", "also", "so anyway"), ~2–4 sentences each — while
+explicitly NOT over-splitting a short dictation, a run of sentences on one point,
+or a brief chat message. Reinforced the messaging profile to keep chat messages
+as one paragraph unless genuinely long and multi-topic, so texts don't get odd
+blank lines.
+
 ### 0.1.63 — shorter swipe bar so its middle lands in the gesture zone (2026-09-17)
 
 User: "Make the bar maybe half the height. You have to be really on the bottom of
