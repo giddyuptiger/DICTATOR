@@ -382,6 +382,27 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.80 — real app design: three tabs, a live dictation hero, not a settings dump (2026-09-17)
+
+The container app looked like a debug/settings page: one long scroll of ten setting
+cards. Reworked it into an actual app.
+
+- **Tabs.** `TabView` with Home / Style / Settings, replacing the single flat scroll.
+  The wake screen still overlays all of it (ZStack wraps the TabView).
+- **Home is now a thing you use, not just read.** A big status *dial* that is also the
+  record button: tap to turn on → tap to dictate right in the app → tap to stop, with a
+  live level ring that swells to your voice, then the cleaned text appears below with
+  Copy / Fix a word. Wired to the existing `beginCapture()` / `endCapture()` (foreground,
+  warm mic — same path the keyboard uses). Plus a "Use Dictator anywhere" how-to and a
+  "Finish setting up" nudge that only shows until setup is complete.
+- **Style tab** shows the five registers as selectable cards, each with a worked example
+  ("hey u around?" … "Hello. Are you available?") so the choice is concrete, not a
+  segmented control of one-word labels.
+- **Settings tab** gathers engine, mic-hold, setup checklist, diagnostics, and a real
+  About block (version + Privacy/Terms links to the live pages).
+- No behavior/plumbing changes to the recorder, onboarding, or wake screen — same
+  lifecycle (`warmUp`/`resync`/scenePhase), just a real IA and visual design on top.
+
 ### 0.1.79 — kill the phantom "Add your Groq key" dead-end in the keyboard (2026-09-17)
 
 - Bug: the keyboard still gated on a user Groq key (`refreshMode`) even though 0.1.74

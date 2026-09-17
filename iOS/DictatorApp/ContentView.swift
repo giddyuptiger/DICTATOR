@@ -58,16 +58,28 @@ private func installCrashLogger() {
     }
 }
 
+// MARK: - Root
+
+/// Three tabs, not a scroll of setting cards:
+///  • Home     — the live status hero + a real tap-to-dictate scratchpad + recent.
+///  • Style    — the five writing registers, each shown with a worked example.
+///  • Settings — engine, mic hold, setup, diagnostics, about.
+/// The whole thing is wrapped in a ZStack so the full-screen wake screen (shown
+/// when the keyboard wakes a sleeping app) can cover the tabs entirely.
 struct ContentView: View {
     @EnvironmentObject private var recorder: BackgroundRecorder
     @EnvironmentObject private var dictionary: DictionaryStore
     @Environment(\.scenePhase) private var scenePhase
 
+    @State private var tab = 0
     @State private var selectedMode: DictationMode = DictationMode.current
 
     @State private var showOnboarding = false
     @State private var onboardingStart = 1
     @State private var showCorrection = false
+
+    @State private var idleMinutes = SharedStore.idleReleaseMinutes
+    @State private var engine: TranscriptionEngine = SharedStore.transcriptionEngine
 
     // Live setup checklist, refreshed on appear and when the app returns.
     @State private var keyboardAdded = false
@@ -75,30 +87,28 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    brandHeader
-                    statusCard
-                    turnButton
-                    micHoldSection
-                    transcriptionSection
-                    modeSection
-                    vocabularySection
-                    lastDictationSection
-                    setupSection
-                    detailsLink
-
-                    Text(Self.versionLine)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity)
-
-                    Spacer(minLength: 40)
-                }
-                .padding()
+            TabView(selection: $tab) {
+                homeTab
+                    .tabItem { Label("Home", systemImage: "waveform") }
+                    .tag(0)
+                styleTab
+                    .tabItem { Label("Style", systemImage: "textformat.alt") }
+                    .tag(1)
+                settingsTab
+                    .tabItem { Label("Settings", systemImage: "gearshape") }
+                    .tag(2)
             }
-            .navigationTitle("Dictator")
+            .tint(Self.brandGreenDeep)
+
+            // Full-screen wake screen. When the keyboard wakes the app to make it
+            // resident (dictator://dictate), we don't want to dump the user into
+            // the settings UI — they want to get back to their app and dictate. So
+            // we cover everything with a calm screen pointing at the home-swipe.
+            if recorder.wokeForDictation {
+                WakeScreen(onDismiss: { recorder.wokeForDictation = false })
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
         }
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingView(startStep: onboardingStart) {
@@ -119,8 +129,8 @@ struct ContentView: View {
             refreshChecklist()
             dictionary.reload()
             if SharedStore.onboardingDone {
-                // Warming has to happen while foregrounded. This is the moment
-                // iOS grants the audio IO the background mode keeps.
+                // Warming has to happen while foregrounded. This is the moment iOS
+                // grants the audio IO the background mode keeps.
                 await recorder.warmUp()
             } else {
                 // First run: walk the user through setup, then warm up.
@@ -136,279 +146,419 @@ struct ContentView: View {
                 selectedMode = DictationMode.current
                 recorder.reloadLog()
                 // The engine may have died while we were away (iOS suspended it,
-                // an interruption, low memory). Returning to the app used to do
-                // nothing because state was still "warm"; now we rebuild if it is
-                // actually dead. This is the fix for "it says wake and only a
+                // an interruption, low memory). Returning to the app rebuilds it if
+                // it is actually dead — the fix for "it says wake and only a
                 // force-quit revives it".
                 if SharedStore.onboardingDone {
                     Task { await recorder.resync() }
                 }
             case .inactive:
-                // NOT "we have left". .inactive fires for a notification banner,
-                // a pull-down of Control Centre, the app switcher, and the system
-                // permission alert — all of which happen while we are still on
-                // screen. Treating that as backgrounded stopped the health check
-                // from rebuilding a dead engine (it only rebuilds in the
-                // foreground), so an interruption during a normal session left
-                // the mic dead until the user force-quit. Only .background means
-                // the user has actually left.
+                // NOT "we have left". .inactive fires for a notification banner, a
+                // Control Centre pull-down, the app switcher, and the system
+                // permission alert — all while we are still on screen. Only
+                // .background means the user has actually left.
                 break
             case .background:
                 recorder.isForeground = false
-                // The user has left (the whole point of the wake banner), so the
-                // one-time "you're ready, go back" prompt has done its job.
                 recorder.wokeForDictation = false
             @unknown default:
                 break
             }
         }
-
-            // Full-screen wake screen. When the keyboard wakes the app to make it
-            // resident (dictator://dictate), we don't want to dump the user into
-            // the settings UI — they want to get back to their app and dictate.
-            // So we cover everything with a calm, mostly blank screen: the logo,
-            // one line of instruction, and a bright bar along the bottom pointing
-            // at the home-swipe gesture that returns them to their previous app.
-            if recorder.wokeForDictation {
-                WakeScreen(onDismiss: { recorder.wokeForDictation = false })
-                    .transition(.opacity)
-                    .zIndex(1)
-            }
-        }
         .animation(.easeInOut(duration: 0.25), value: recorder.wokeForDictation)
     }
 
-    // MARK: - Header
+    // MARK: - Home tab
 
-    private var brandHeader: some View {
-        VStack(spacing: 12) {
-            WaveformMark()
-                .frame(width: 150, height: 40)
-            Text("Private dictation, right on your iPhone.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+    private var homeTab: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 22) {
+                    heroCard
+                    if showSetupPrompt { finishSetupCard }
+                    lastDictationSection
+                    howToCard
+                }
+                .padding()
+                .padding(.bottom, 24)
+            }
+            .navigationTitle("Dictator")
+        }
+    }
+
+    /// The centrepiece: a big status dial that is also the record button, plus a
+    /// one-line status. Tapping it does the obvious next thing for the current
+    /// state — turn on, dictate, stop, or retry — so the home screen actually
+    /// *does* something instead of only describing settings.
+    private var heroCard: some View {
+        VStack(spacing: 18) {
+            micDial
+
+            VStack(spacing: 6) {
+                Text(statusHeadline)
+                    .font(.title2.bold())
+                Text(heroSub)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+            }
+
+            heroControlRow
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 4)
-    }
-
-    // MARK: - Status
-
-    private var statusCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(dotColor)
-                    .frame(width: 14, height: 14)
-                    .shadow(color: dotColor.opacity(0.6), radius: 4)
-                Text(statusHeadline).font(.headline)
-                Spacer()
-                Text(micLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if recorder.state == .capturing {
-                ProgressView(value: Double(min(recorder.level * 6, 1)))
-                    .tint(Self.pastelRed)
-            }
-            Text(statusDetail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 28)
+        .padding(.horizontal, 20)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(dotColor.opacity(0.07))   // faint state tint (green ready, red live)
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [dialGlow.opacity(0.14), .clear],
+                                startPoint: .top, endPoint: .center
+                            )
+                        )
                 )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    // Soft, muted accents instead of the saturated system colours, to match the
-    // keyboard's pastel pills. Still saturated enough to read as a 12pt status dot.
-    static let pastelGreen = Color(red: 0.36, green: 0.66, blue: 0.45) // sage
-    static let pastelRed   = Color(red: 0.85, green: 0.47, blue: 0.44) // soft rose
-    static let pastelAmber = Color(red: 0.87, green: 0.66, blue: 0.36) // soft amber
-
-    // Brand accent — green, matched to the app icon (soundwave + sunglasses + mustache).
-    static let brandGreen = Color(red: 0.22, green: 0.89, blue: 0.61)     // #37E39B
-    static let brandGreenDeep = Color(red: 0.07, green: 0.64, blue: 0.36) // #12A45C
-    static var brandGradient: LinearGradient {
-        LinearGradient(colors: [brandGreen, brandGreenDeep], startPoint: .leading, endPoint: .trailing)
+    private var micDial: some View {
+        Button(action: micDialTapped) {
+            ZStack {
+                // A soft ring that swells with the mic level while recording, so
+                // the dial visibly reacts to your voice.
+                if recorder.state == .capturing {
+                    Circle()
+                        .stroke(Self.pastelRed.opacity(0.35), lineWidth: 7)
+                        .frame(width: 150, height: 150)
+                        .scaleEffect(1 + CGFloat(min(recorder.level * 6, 1)) * 0.16)
+                        .animation(.easeOut(duration: 0.12), value: recorder.level)
+                }
+                Circle()
+                    .fill(dialFill)
+                    .frame(width: 140, height: 140)
+                    .shadow(color: dialGlow.opacity(0.45), radius: 18, y: 7)
+                dialIcon
+            }
+            .frame(width: 168, height: 168)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(recorder.state == .transcribing)
+        .accessibilityLabel(dialAccessibilityLabel)
     }
 
-    private var dotColor: Color {
+    @ViewBuilder
+    private var dialIcon: some View {
         switch recorder.state {
-        case .cold: return .gray
-        case .warm: return Self.pastelGreen
-        case .capturing: return Self.pastelRed
+        case .cold:
+            Image(systemName: "power")
+                .font(.system(size: 50, weight: .bold))
+                .foregroundStyle(.white)
+        case .warm:
+            Image(systemName: "mic.fill")
+                .font(.system(size: 54, weight: .semibold))
+                .foregroundStyle(.white)
+        case .capturing:
+            Image(systemName: "stop.fill")
+                .font(.system(size: 46, weight: .bold))
+                .foregroundStyle(.white)
+        case .transcribing:
+            ProgressView()
+                .controlSize(.large)
+                .tint(.white)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 44, weight: .bold))
+                .foregroundStyle(.white)
+        }
+    }
+
+    private var dialFill: LinearGradient {
+        switch recorder.state {
+        case .warm:
+            return Self.brandGradient
+        case .capturing:
+            return LinearGradient(colors: [Self.pastelRed, Color(red: 0.72, green: 0.28, blue: 0.28)],
+                                  startPoint: .top, endPoint: .bottom)
+        case .transcribing:
+            return LinearGradient(colors: [Self.pastelAmber, Color(red: 0.86, green: 0.52, blue: 0.18)],
+                                  startPoint: .top, endPoint: .bottom)
+        case .failed:
+            return LinearGradient(colors: [Self.pastelRed, Color(red: 0.72, green: 0.28, blue: 0.28)],
+                                  startPoint: .top, endPoint: .bottom)
+        case .cold:
+            return LinearGradient(colors: [Color(.systemGray2), Color(.systemGray3)],
+                                  startPoint: .top, endPoint: .bottom)
+        }
+    }
+
+    private var dialGlow: Color {
+        switch recorder.state {
+        case .warm: return Self.brandGreen
+        case .capturing, .failed: return Self.pastelRed
         case .transcribing: return Self.pastelAmber
-        case .failed: return Self.pastelRed
+        case .cold: return .gray
+        }
+    }
+
+    private func micDialTapped() {
+        switch recorder.state {
+        case .cold:
+            recorder.note("turn on tapped (dial)")
+            Task { await recorder.warmUp() }
+        case .warm:
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            recorder.beginCapture()
+        case .capturing:
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            recorder.endCapture()
+        case .transcribing:
+            break
+        case .failed:
+            Task { await recorder.retryWarmUp() }
+        }
+    }
+
+    private var dialAccessibilityLabel: String {
+        switch recorder.state {
+        case .cold: return "Turn Dictator on"
+        case .warm: return "Dictate"
+        case .capturing: return "Stop dictating"
+        case .transcribing: return "Transcribing"
+        case .failed: return "Try again"
+        }
+    }
+
+    /// A quiet secondary control under the dial: turn Dictator off once it's on,
+    /// so leaving the mic open is never a trap.
+    @ViewBuilder
+    private var heroControlRow: some View {
+        switch recorder.state {
+        case .warm, .capturing:
+            Button {
+                if recorder.state == .capturing { recorder.endCapture() }
+                recorder.shutDown()
+            } label: {
+                Label("Turn off", systemImage: "power")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.bordered)
+            .tint(.secondary)
+        case .failed:
+            Button("Try again") { Task { await recorder.retryWarmUp() } }
+                .buttonStyle(.borderedProminent)
+                .tint(Self.brandGreenDeep)
+        default:
+            EmptyView()
+        }
+    }
+
+    private var heroSub: String {
+        switch recorder.state {
+        case .cold:
+            return "Tap to turn on. Then dictate right here, or from the Dictator keyboard in any app."
+        case .warm:
+            return "Tap the mic to dictate here — or open any app, switch to the Dictator keyboard, and talk."
+        case .capturing:
+            return "Listening… tap to stop. Dictator records over your music, never turning it down."
+        case .transcribing:
+            return "Turning your speech into clean text…"
+        case .failed(let e):
+            return e.contains("denied")
+                ? "Turn the microphone on in Settings, then come back."
+                : e
         }
     }
 
     private var statusHeadline: String {
         switch recorder.state {
         case .cold: return "Dictator is off"
-        case .warm: return "Dictator is ready"
+        case .warm: return "Ready to dictate"
         case .capturing: return "Listening"
         case .transcribing: return "Transcribing"
-        case .failed(let e): return e.contains("denied") ? "Microphone is off in Settings" : "Couldn't turn on"
+        case .failed(let e): return e.contains("denied") ? "Microphone is off" : "Couldn't turn on"
         }
     }
 
-    /// The honest mic-state line. While Dictator is on, the microphone is open
-    /// the whole time, because that is the only way the keyboard can dictate from
-    /// another app. It is closed only when Dictator is off.
-    private var micLine: String {
-        switch recorder.state {
-        case .cold, .failed: return ""
-        default: return "Microphone on"
+    // MARK: - Home: finish-setup nudge (only until setup is complete)
+
+    private var showSetupPrompt: Bool { !(keyboardAdded && fullAccess) }
+
+    private var finishSetupCard: some View {
+        Button {
+            onboardingStart = keyboardAdded ? 2 : 1
+            showOnboarding = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "sparkles")
+                    .font(.title2)
+                    .foregroundStyle(Self.brandGreenDeep)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Finish setting up")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(keyboardAdded
+                         ? "Turn on Full Access so the keyboard can dictate."
+                         : "Add the Dictator keyboard to use it in other apps.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Self.brandGreen.opacity(0.12))
+            )
         }
+        .buttonStyle(.plain)
     }
 
-    private var statusDetail: String {
-        switch recorder.state {
-        case .cold:
-            return "Turn Dictator on to use its keyboard in other apps."
-        case .failed(let e):
-            return e.contains("denied") ? "Turn the microphone on in Settings, then come back." : e
-        default:
-            return "Dictator keeps the microphone open while it's on, so the keyboard can dictate from any app. The orange dot shows it. Turn Dictator off to close the microphone."
-        }
-    }
+    // MARK: - Home: recent dictation
 
     @ViewBuilder
-    private var turnButton: some View {
-        switch recorder.state {
-        case .cold:
-            Button("Turn on") {
-                recorder.note("turn on tapped")
-                Task { await recorder.warmUp() }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(Self.brandGreenDeep)
-            .frame(maxWidth: .infinity)
-        case .failed:
-            // A failed warm-up is recoverable, not a dead end: always offer a
-            // retry. CannotInterruptOthers clears once another app releases audio.
-            Button("Try again") {
-                Task { await recorder.retryWarmUp() }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(Self.brandGreenDeep)
-            .frame(maxWidth: .infinity)
-        default:
-            Button("Turn off", role: .destructive) {
-                recorder.shutDown()
-            }
-            .buttonStyle(.bordered)
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    // MARK: - How long to hold the microphone
-
-    @State private var idleMinutes = SharedStore.idleReleaseMinutes
-    @State private var engine: TranscriptionEngine = SharedStore.transcriptionEngine
-
-    /// The one honest trade in the product, made visible.
-    ///
-    /// iOS will not let the microphone be reopened from the background, so once
-    /// Dictator lets it go, the next dictation costs a trip to this app and a
-    /// swipe back. A short window means less orange dot and more trips; a long
-    /// one means the reverse. Five minutes was hard-coded, which put that trip
-    /// in the middle of ordinary use with no way to say "stop doing that".
-    private var micHoldSection: some View {
-        section("Keep the microphone ready") {
-            Picker("Release after", selection: $idleMinutes) {
-                Text("5 min").tag(5)
-                Text("30 min").tag(30)
-                Text("2 hours").tag(120)
-                Text("Never").tag(0)
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: idleMinutes) { _, new in SharedStore.idleReleaseMinutes = new }
-            Text(idleBlurb)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var idleBlurb: String {
-        switch idleMinutes {
-        case 0:
-            return "Dictator holds the microphone until you turn it off, so the keyboard always dictates in place. Uses a little more battery, and the orange mic dot stays on."
-        default:
-            let label = idleMinutes >= 60 ? "\(idleMinutes / 60) hours" : "\(idleMinutes) minutes"
-            return "After \(label) without dictating, Dictator releases the microphone to save battery. Waking it again means opening this app and swiping back, so pick a longer window if that happens often. Dictator never turns your music down — it just records over it."
-        }
-    }
-
-    // MARK: - Transcription engine
-
-    private var transcriptionSection: some View {
-        section("Transcription") {
-            Picker("Engine", selection: $engine) {
-                Text("On-device").tag(TranscriptionEngine.onDevice)
-                Text("Cloud").tag(TranscriptionEngine.cloud)
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: engine) { _, new in recorder.setTranscriptionEngine(new) }
-            Text(engineBlurb)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var engineBlurb: String {
-        switch engine {
-        case .onDevice:
-            switch recorder.modelStatus {
-            case .idle:
-                return "Transcribes privately on your iPhone — nothing is sent to the cloud, and it works offline. The speech model downloads once the first time you turn Dictator on."
-            case .downloading:
-                return "Downloading the on-device speech model… this happens once, then it works offline. Dictation uses the cloud in the meantime if a key is set."
-            case .ready:
-                return "Ready — your speech is transcribed on your iPhone. The formatting/cleanup step still uses the cloud for now (it's fast and cheap); a fully on-device cleanup is coming once it's good enough."
-            case .failed(let e):
-                return "The on-device model couldn't load (\(e)). Falling back to the cloud if a Groq key is set; try turning Dictator off and on."
-            }
-        case .cloud:
-            return "Transcribes with Groq in the cloud (needs a Groq key). Best accuracy on noisy audio, accents, and proper nouns."
-        }
-    }
-
-    // MARK: - Mode
-
-    private var modeSection: some View {
-        section("Mode") {
-            Picker("Mode", selection: $selectedMode) {
-                ForEach(DictationMode.allCases, id: \.self) { m in
-                    Text(m.displayName).tag(m)
+    private var lastDictationSection: some View {
+        if !recorder.lastTranscript.isEmpty {
+            section(recorder.lastWasRecovered ? "Recovered dictation" : "Last dictation") {
+                if recorder.lastWasRecovered {
+                    Label("Recovered from a dictation that didn't finish last time.",
+                          systemImage: "arrow.clockwise.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text(recorder.lastTranscript)
+                    .font(.callout)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack {
+                    Button {
+                        UIPasteboard.general.string = recorder.lastTranscript
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    } label: { Label("Copy", systemImage: "doc.on.doc") }
+                        .font(.caption)
+                    Spacer()
+                    Button {
+                        showCorrection = true
+                    } label: { Label("Fix a word", systemImage: "character.cursor.ibeam") }
+                        .font(.caption)
                 }
             }
-            .pickerStyle(.segmented)
-            .onChange(of: selectedMode) { _, new in DictationMode.current = new }
-            Text(modeBlurb)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private var modeBlurb: String {
-        switch selectedMode {
+    // MARK: - Home: how to use it elsewhere
+
+    private var howToCard: some View {
+        section("Use Dictator anywhere") {
+            howToRow(1, "mic.fill", "Dictate here", "Tap the mic above to turn speech into text in this app.")
+            Divider().opacity(0.4)
+            howToRow(2, "globe", "Or in any app", "Tap the 🌐 globe on any keyboard and pick Dictator.")
+            Divider().opacity(0.4)
+            howToRow(3, "text.bubble", "Then just talk", "Tap the Dictator mic and speak. Clean text lands where your cursor is.")
+        }
+    }
+
+    private func howToRow(_ n: Int, _ icon: String, _ title: String, _ body: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.body)
+                .foregroundStyle(Self.brandGreenDeep)
+                .frame(width: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(body).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: - Style tab
+
+    private var styleTab: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 22) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("How Dictator writes")
+                            .font(.headline)
+                        Text("Pick the register. Dictator formats every dictation this way — from how you text to fully formal.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(spacing: 12) {
+                        ForEach(DictationMode.allCases, id: \.self) { mode in
+                            styleCard(mode)
+                        }
+                    }
+
+                    vocabularyCard
+                }
+                .padding()
+                .padding(.bottom, 24)
+            }
+            .navigationTitle("Style")
+        }
+    }
+
+    private func styleCard(_ mode: DictationMode) -> some View {
+        let selected = selectedMode == mode
+        return Button {
+            selectedMode = mode
+            DictationMode.current = mode
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(mode.displayName)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selected ? Self.brandGreenDeep : Color(.systemGray3))
+                }
+                Text(modeBlurb(mode))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(styleExample(mode))
+                    .font(.callout.italic())
+                    .foregroundStyle(selected ? Self.brandGreenDeep : .secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color(.tertiarySystemBackground))
+                    )
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(selected ? Self.brandGreen : .clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func modeBlurb(_ mode: DictationMode) -> String {
+        switch mode {
         case .superCasual: return "Lowercase, contractions, barely any punctuation. How you text."
         case .casual:      return "Normal writing. Sentence case, ordinary punctuation."
         case .formal:      return "Complete sentences, no contractions. Disciplined, not inflated."
@@ -417,9 +567,17 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Vocabulary
+    private func styleExample(_ mode: DictationMode) -> String {
+        switch mode {
+        case .superCasual: return "hey u around? wanna grab food later"
+        case .casual:      return "Hey, are you around? Want to grab food later?"
+        case .formal:      return "Hello. Are you available? I would like to arrange a meal."
+        case .expressive:  return "Hey! You around? Let's grab food later!"
+        case .emoji:       return "Hey, you around? Let's grab food later 🍜"
+        }
+    }
 
-    private var vocabularySection: some View {
+    private var vocabularyCard: some View {
         section("Vocabulary") {
             NavigationLink {
                 VocabularyView(store: dictionary)
@@ -443,45 +601,102 @@ struct ContentView: View {
         return n == 1 ? "1 word" : "\(n) words"
     }
 
-    // MARK: - Last dictation
+    // MARK: - Settings tab
 
-    @ViewBuilder
-    private var lastDictationSection: some View {
-        if !recorder.lastTranscript.isEmpty {
-            section(recorder.lastWasRecovered ? "Recovered dictation" : "Last dictation") {
-                if recorder.lastWasRecovered {
-                    Label("Recovered from a dictation that didn't finish last time.",
-                          systemImage: "arrow.clockwise.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+    private var settingsTab: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 22) {
+                    transcriptionSection
+                    micHoldSection
+                    setupSection
+                    aboutSection
                 }
-                Text(recorder.lastTranscript)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                HStack {
-                    Button {
-                        UIPasteboard.general.string = recorder.lastTranscript
-                    } label: { Label("Copy", systemImage: "doc.on.doc") }
-                        .font(.caption)
-                    Spacer()
-                    Button {
-                        showCorrection = true
-                    } label: { Label("Fix a word", systemImage: "character.cursor.ibeam") }
-                        .font(.caption)
-                }
+                .padding()
+                .padding(.bottom, 24)
             }
+            .navigationTitle("Settings")
         }
     }
 
-    // MARK: - Setup checklist
+    private var transcriptionSection: some View {
+        section("Transcription") {
+            Picker("Engine", selection: $engine) {
+                Text("On-device").tag(TranscriptionEngine.onDevice)
+                Text("Cloud").tag(TranscriptionEngine.cloud)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: engine) { _, new in recorder.setTranscriptionEngine(new) }
+            Text(engineBlurb)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var engineBlurb: String {
+        switch engine {
+        case .onDevice:
+            switch recorder.modelStatus {
+            case .idle:
+                return "Transcribes privately on your iPhone — nothing is sent to the cloud, and it works offline. The speech model downloads once the first time you turn Dictator on."
+            case .downloading:
+                return "Downloading the on-device speech model… this happens once, then it works offline."
+            case .ready:
+                return "Ready — your speech is transcribed on your iPhone. The formatting step still uses the cloud for now (fast and cheap); a fully on-device version is coming."
+            case .failed(let e):
+                return "The on-device model couldn't load (\(e)). Falling back to the cloud; try turning Dictator off and on."
+            }
+        case .cloud:
+            return "Transcribes in the cloud for the best accuracy on noisy audio, accents, and proper nouns. Audio is sent for transcription and not stored."
+        }
+    }
+
+    /// iOS won't let the microphone be reopened from the background, so once
+    /// Dictator lets it go, the next dictation costs a trip to this app and a
+    /// swipe back. A short window means less orange dot and more trips; a long one
+    /// means the reverse.
+    private var micHoldSection: some View {
+        section("Keep the microphone ready") {
+            Picker("Release after", selection: $idleMinutes) {
+                Text("5 min").tag(5)
+                Text("30 min").tag(30)
+                Text("2 hours").tag(120)
+                Text("Never").tag(0)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: idleMinutes) { _, new in SharedStore.idleReleaseMinutes = new }
+            Text(idleBlurb)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var idleBlurb: String {
+        switch idleMinutes {
+        case 0:
+            return "Dictator holds the microphone until you turn it off, so the keyboard always dictates in place. Uses a little more battery, and the orange mic dot stays on."
+        default:
+            let label = idleMinutes >= 60 ? "\(idleMinutes / 60) hours" : "\(idleMinutes) minutes"
+            return "After \(label) without dictating, Dictator releases the microphone to save battery. Waking it again means opening this app and swiping back, so pick a longer window if that happens often."
+        }
+    }
 
     private var setupSection: some View {
         section("Setup") {
-            // No "Groq key" step anymore — transcription is on-device and cleanup
-            // goes through the backend, so no key is required to use Dictator.
-            // Steps map to the reworked 4-step onboarding (keyboard = 1, Full Access = 2).
             checklistRow(done: keyboardAdded, title: "Dictator keyboard added", step: 1)
             checklistRow(done: fullAccess, title: "Full Access on", step: 2)
+            NavigationLink {
+                DetailsView(recorder: recorder)
+            } label: {
+                HStack {
+                    Text("Diagnostics & activity").foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -496,11 +711,40 @@ struct ContentView: View {
                 Text(title).foregroundStyle(.primary)
                 Spacer()
                 if !done {
-                    Text("Set up").font(.caption).foregroundStyle(.blue)
+                    Text("Set up").font(.caption).foregroundStyle(Self.brandGreenDeep)
                 }
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private var aboutSection: some View {
+        section("About") {
+            Link(destination: URL(string: "https://giddyuptiger.github.io/DICTATOR/privacy-policy.html")!) {
+                aboutRow("Privacy Policy", "hand.raised")
+            }
+            .buttonStyle(.plain)
+            Link(destination: URL(string: "https://giddyuptiger.github.io/DICTATOR/terms.html")!) {
+                aboutRow("Terms of Use", "doc.text")
+            }
+            .buttonStyle(.plain)
+            HStack {
+                Label("Version", systemImage: "info.circle")
+                Spacer()
+                Text(Self.versionLine).foregroundStyle(.secondary)
+            }
+            .font(.subheadline)
+        }
+    }
+
+    private func aboutRow(_ title: String, _ icon: String) -> some View {
+        HStack {
+            Label(title, systemImage: icon)
+            Spacer()
+            Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(.tertiary)
+        }
+        .font(.subheadline)
+        .foregroundStyle(.primary)
     }
 
     private func refreshChecklist() {
@@ -511,25 +755,24 @@ struct ContentView: View {
         fullAccess = SharedStore.keyboardEverSeen
     }
 
-    // MARK: - Details
+    // MARK: - Design tokens
 
-    private var detailsLink: some View {
-        NavigationLink {
-            DetailsView(recorder: recorder)
-        } label: {
-            HStack {
-                Text("Details").foregroundStyle(.primary)
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-            }
-        }
-        .buttonStyle(.plain)
+    // Soft, muted accents instead of the saturated system colours, to match the
+    // keyboard's pastel pills. Still saturated enough to read as a status dot.
+    static let pastelGreen = Color(red: 0.36, green: 0.66, blue: 0.45) // sage
+    static let pastelRed   = Color(red: 0.85, green: 0.47, blue: 0.44) // soft rose
+    static let pastelAmber = Color(red: 0.87, green: 0.66, blue: 0.36) // soft amber
+
+    // Brand accent — green, matched to the app icon (soundwave + mustache).
+    static let brandGreen = Color(red: 0.22, green: 0.89, blue: 0.61)     // #37E39B
+    static let brandGreenDeep = Color(red: 0.07, green: 0.64, blue: 0.36) // #12A45C
+    static var brandGradient: LinearGradient {
+        LinearGradient(colors: [brandGreen, brandGreenDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     // MARK: - Helpers
 
-    /// "0.1.5 (3)": the version we ratchet by hand and the build Xcode Cloud
-    /// assigns. Here so "which build is this?" is answered without TestFlight.
+    /// "0.1.79 (3)": the hand-ratcheted version and the build Xcode Cloud assigns.
     private static var versionLine: String {
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? "?"
@@ -544,7 +787,7 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .tracking(0.5)
                 .padding(.leading, 4)
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 content()
             }
             .padding(16)
@@ -642,8 +885,8 @@ private struct WakeScreen: View {
 
                 Spacer()
 
-                // A quiet escape hatch so the user is never trapped on this
-                // screen if they'd rather stay in the app.
+                // A quiet escape hatch so the user is never trapped on this screen
+                // if they'd rather stay in the app.
                 Button("Stay in Dictator", action: onDismiss)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -662,8 +905,8 @@ private struct WakeScreen: View {
 }
 
 /// The bottom "Swipe back to your app" bar with a fingertip that continuously
-/// glides left→right along the bar, trailing a soft motion blur and fading out
-/// at each end so the loop never snaps. Driven by TimelineView so the motion is
+/// glides left→right along the bar, trailing a soft motion blur and fading out at
+/// each end so the loop never snaps. Driven by TimelineView so the motion is
 /// frame-smooth and self-looping (no state juggling), and GeometryReader so the
 /// fingertip travels the bar's real width on any device.
 private struct SwipeHintBar: View {
