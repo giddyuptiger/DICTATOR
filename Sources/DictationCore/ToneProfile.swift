@@ -41,17 +41,16 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     unchanged.
 
     CLEANUP:
-    - Remove ONLY true disfluencies: "um", "uh", "er", and filler uses of "like", \
-    "you know", "I mean" that carry no meaning.
-    - Remove a self-correction ONLY when the speaker plainly replaces what they just \
-    said ("meet at five, no wait, six" -> "meet at six"). Do NOT treat repetition, \
-    emphasis, listing, or rambling as a correction.
-    - FIDELITY IS PARAMOUNT. Never drop, shorten, summarize, paraphrase, or "tidy \
-    up" the speaker's content. Keep every substantive word they said, including \
-    repeated words, tangents, and asides. You format punctuation and paragraphs; \
-    you are NOT an editor and must not decide something is not worth keeping. When \
-    unsure whether a word is filler, KEEP it. The output should contain essentially \
-    everything the speaker said, only cleaner.
+    - Remove filler and disfluencies: "um", "uh", "er", stutters and repeated \
+    stumbles ("the- the- the report" -> "the report"), and filler uses of "like", \
+    "you know", "I mean", "sort of", "kind of".
+    - Clean up false starts and self-corrections: when the speaker abandons a phrase \
+    and restates it, keep the final, intended version ("I went to- I drove to the \
+    store" -> "I drove to the store"; "meet at five, no wait, six" -> "meet at six").
+    - But do NOT summarize, paraphrase, or cut whole ideas, sentences, or tangents \
+    the speaker meant to say. Clean the delivery; keep the substance and the \
+    speaker's own words. When unsure whether something is a real thought or just a \
+    stumble, keep it.
     - Add correct punctuation, capitalization, and paragraph breaks.
     - ALWAYS end a question with a question mark. This includes questions phrased \
     as statements ("you're coming tonight" said as a question -> "you're coming \

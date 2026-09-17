@@ -382,6 +382,17 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.68 — cleanup: clean stutters/false starts, but don't gut content (2026-09-17)
+
+Correction to 0.1.67, which over-swung: removing false starts and stutters is a
+WANTED feature, not a bug (0.1.67 told the model to keep essentially everything).
+The actual 0.1.67 problem was only that a small cloud model occasionally cut real
+content. So this restores the good behavior with a balanced prompt: remove filler,
+stutters, and false starts (keep the final intended version), but do not summarize,
+paraphrase, or cut whole ideas/sentences/tangents the speaker meant to say. The
+0.1.67 word-count safety net (fall back to raw if cleaned < half the words of a
+≥12-word transcript) stays as a catastrophic-loss backstop only.
+
 ### 0.1.67 — never let cleanup drop the user's words (2026-09-17)
 
 Device report: a rambling dictation came back "a lot nicer as a paragraph, but it
