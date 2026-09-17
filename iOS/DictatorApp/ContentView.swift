@@ -16,7 +16,10 @@ struct DictatorApp: App {
                 .environmentObject(dictionary)
                 .task {
                     installCrashLogger()
-                    seedAPIKeyIfNeeded()
+                    // The Groq key now lives on the backend, not in the app. Clear
+                    // any previously-seeded embedded key once so existing installs
+                    // route through the proxy.
+                    SharedStore.migrateKeyToBackendIfNeeded()
                     // Undo 0.1.60's forced 1-minute mic-hold once; Dictator no
                     // longer touches music, so the short window isn't needed.
                     SharedStore.migrateMusicHoldIfNeeded()
@@ -37,18 +40,6 @@ struct DictatorApp: App {
         }
     }
 
-    /// Writes the build-time key into the App Group once, so neither this app nor
-    /// the keyboard extension needs it typed on a phone. Anything saved in
-    /// settings wins, because this only fires when the stored value is empty.
-    ///
-    /// The key itself lives in Secrets.swift, which is gitignored locally and
-    /// written from an environment variable by ci_scripts/ci_post_clone.sh on
-    /// Xcode Cloud. It is never in the repository.
-    private func seedAPIKeyIfNeeded() {
-        guard (SharedStore.groqAPIKey ?? "").isEmpty else { return }
-        guard !BuildSecrets.groqAPIKey.isEmpty else { return }
-        SharedStore.groqAPIKey = BuildSecrets.groqAPIKey
-    }
 }
 
 /// Record the reason for any uncaught Objective-C exception into the shared
@@ -479,7 +470,8 @@ struct ContentView: View {
 
     private var setupSection: some View {
         section("Setup") {
-            checklistRow(done: keyDone, title: "Groq key added", step: 1)
+            // No "Groq key" step anymore — transcription is on-device and cleanup
+            // goes through the backend, so no key is required to use Dictator.
             checklistRow(done: keyboardAdded, title: "Dictator keyboard added", step: 2)
             checklistRow(done: fullAccess, title: "Full Access on", step: 3)
         }

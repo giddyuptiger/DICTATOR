@@ -1213,16 +1213,11 @@ public final class BackgroundRecorder: ObservableObject {
     /// Groq if a key exists; on cloud it uses Groq; with neither it degrades to the
     /// deterministic dictionary pass. FallbackCleanupProvider tries them in order.
     private func makeCleaner(key: String, dictionary: PersonalDictionary) -> Cleaner {
-        // Apple's on-device cleanup (AppleOnDeviceCleanup) is implemented but NOT
-        // wired in: on-device testing (0.1.70) showed its small model too often
-        // ANSWERED the transcript instead of reformatting it, ignored the mode
-        // rules, and was slow (3-4s vs sub-second transcription). Until Apple's
-        // model improves or we tune it further, cleanup uses Groq when a key exists,
-        // otherwise the deterministic dictionary pass. On-device TRANSCRIPTION is
-        // unaffected (fast, accurate) — this only concerns the cleanup step.
-        key.isEmpty
-            ? Cleaner(provider: nil, dictionary: dictionary)
-            : Cleaner(provider: GroqCleanup(apiKey: key), dictionary: dictionary)
+        // Cleanup provider: BYOK (user's own key) -> Groq directly; otherwise (the
+        // default) -> the backend proxy, which holds the key server-side. Apple's
+        // on-device cleanup is implemented but unwired (too unreliable as of 0.1.70).
+        let provider: CleanupProvider = key.isEmpty ? BackendCleanup() : GroqCleanup(apiKey: key)
+        return Cleaner(provider: provider, dictionary: dictionary)
     }
 
     /// Re-runs transcription on the audio kept from a failed attempt. Wired to
@@ -1245,10 +1240,8 @@ public final class BackgroundRecorder: ObservableObject {
     private func recoverPendingIfAny() {
         guard let samples = readPending() else { return }
         guard samples.count > 3_200 else { clearPending(); return }   // too short to matter
-        // Need SOME engine available: a Groq key, or the on-device model loaded.
-        let hasKey = !(SharedStore.groqAPIKey ?? "").isEmpty
-        let onDeviceReady = SharedStore.transcriptionEngine == .onDevice && modelStatus == .ready
-        guard hasKey || onDeviceReady else { return }   // nothing to transcribe with yet; keep the file
+        // The backend is always an available engine now, so recovery can proceed;
+        // if it's offline, recover() catches the error and leaves the file for later.
         log(String(format: "recovering %.1fs from a previous session", Double(samples.count) / 16_000))
         Task { await recover(samples) }
     }
@@ -1259,13 +1252,14 @@ public final class BackgroundRecorder: ObservableObject {
         let dictionary = PersonalDictionary.load()
         let key = SharedStore.groqAPIKey ?? ""
         let onDeviceReady = SharedStore.transcriptionEngine == .onDevice && modelStatus == .ready
+        let bias = dictionary.entries.map(\.canonical)
         let speech: SpeechProvider
         if onDeviceReady {
             speech = localSpeech
         } else if !key.isEmpty {
-            speech = GroqTranscription(apiKey: key, biasTerms: dictionary.entries.map(\.canonical))
+            speech = GroqTranscription(apiKey: key, biasTerms: bias)
         } else {
-            return   // no engine available; leave the file for a later launch
+            speech = BackendTranscription(biasTerms: bias)
         }
         let cleaner = makeCleaner(key: key, dictionary: dictionary)
         do {
@@ -1359,21 +1353,19 @@ public final class BackgroundRecorder: ObservableObject {
         let key = SharedStore.groqAPIKey ?? ""
         let engine = SharedStore.transcriptionEngine
 
-        // Pick the transcription engine. On-device (Parakeet) is used when it is
-        // selected AND the model has finished loading; otherwise fall back to the
-        // cloud when a key is available, so a dictation during model download still
-        // works. Only error when neither path is possible.
+        // Pick the transcription engine:
+        //  - on-device (Parakeet) when selected AND the model is loaded;
+        //  - BYOK -> Groq directly when the user supplied their own key;
+        //  - otherwise the backend proxy (default), which also covers on-device
+        //    while the model is still downloading, so the dictation still lands.
+        let bias = dictionary.entries.map(\.canonical)
         let speech: SpeechProvider
         if engine == .onDevice, modelStatus == .ready {
             speech = localSpeech
         } else if !key.isEmpty {
-            speech = GroqTranscription(apiKey: key, biasTerms: dictionary.entries.map(\.canonical))
-        } else if engine == .onDevice {
-            finish(error: "On-device model is still loading — try again in a moment", retryable: true)
-            return
+            speech = GroqTranscription(apiKey: key, biasTerms: bias)
         } else {
-            finish(error: "Add your Groq key in Dictator", retryable: false)
-            return
+            speech = BackendTranscription(biasTerms: bias)
         }
 
         // Cleanup (punctuation, mode, paragraphs): on-device engine prefers Apple's

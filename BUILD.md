@@ -382,6 +382,28 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.74 — route through the backend; remove the embedded key (2026-09-17)
+
+The launch-blocker fix. The Groq key no longer ships in the app; cloud transcription
+and cleanup go through the Cloudflare Worker (`backend/`), which holds the key.
+
+- New `Backend.swift`: `BackendTranscription` (SpeechProvider) and `BackendCleanup`
+  (CleanupProvider) POST to the Worker at `Backend.baseURL`, with a per-install
+  `X-Device-Id`. `SharedStore.deviceID` generates/stores that id.
+- Provider selection (BackgroundRecorder): on-device Parakeet when selected+ready;
+  BYOK (user's own key) → Groq directly; otherwise → the backend proxy (default,
+  also covers on-device while the model downloads). Cleanup mirrors this: BYOK→Groq,
+  else→backend. Recovery path too. No more "add your Groq key" dead-end.
+- Default transcription engine flipped to **on-device** (validated on device).
+- Embedded key removed: `seedAPIKeyIfNeeded()` deleted; `ci_post_clone.sh` now writes
+  an EMPTY `BuildSecrets` so no key is compiled into the binary; a one-time
+  `migrateKeyToBackendIfNeeded()` clears any previously-seeded key so existing
+  installs move to the proxy. Dropped the obsolete "Groq key added" setup step.
+
+Requires the backend deployed (see backend/README.md) and `Backend.baseURL` pointing
+at it (currently the dev Worker). Follow-up: rework onboarding (still has a key step),
+add App Attest to the backend before public scale.
+
 ### 0.1.73 — first design pass: brand it, stop looking like a debug page (2026-09-17)
 
 The main app screen read as a utilitarian debug page. First pass toward a real

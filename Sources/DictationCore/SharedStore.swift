@@ -179,8 +179,33 @@ public enum SharedStore {
     /// stays opt-in until it is proven on real devices, at which point this default
     /// flips. The keyboard reads nothing here; transcription runs in the container app.
     public static var transcriptionEngine: TranscriptionEngine {
-        get { TranscriptionEngine(rawValue: defaults?.string(forKey: "transcriptionEngine") ?? "") ?? .cloud }
+        get { TranscriptionEngine(rawValue: defaults?.string(forKey: "transcriptionEngine") ?? "") ?? .onDevice }
         set { defaults?.set(newValue.rawValue, forKey: "transcriptionEngine") }
+    }
+
+    /// A stable per-install id sent to the backend so it can rate-limit per device.
+    /// Random, not personally identifying; created once by Backend.deviceID.
+    public static var deviceID: String? {
+        get { defaults?.string(forKey: "deviceID") }
+        set { defaults?.set(newValue, forKey: "deviceID") }
+    }
+
+    /// One-time flag: whether the previously-seeded embedded Groq key has been
+    /// cleared so the install routes through the backend proxy instead.
+    public static var keySeedClearedV1: Bool {
+        get { defaults?.bool(forKey: "keySeedClearedV1") ?? false }
+        set { defaults?.set(newValue, forKey: "keySeedClearedV1") }
+    }
+
+    /// The app used to seed its build-time Groq key into this store, so every user
+    /// transcribed on the developer's key. That key now lives ONLY on the backend.
+    /// Clear the old seeded value once so existing installs move to the proxy. A
+    /// user who deliberately sets their own key (BYOK) later is unaffected — this
+    /// runs a single time. Safe to call on every launch.
+    public static func migrateKeyToBackendIfNeeded() {
+        guard !keySeedClearedV1 else { return }
+        groqAPIKey = nil
+        keySeedClearedV1 = true
     }
 
     /// Set by the (now-reverted) 0.1.60 migration that forced the idle window to 1

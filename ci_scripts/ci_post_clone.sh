@@ -20,15 +20,18 @@ if [ -n "$CI_BUILD_NUMBER" ]; then
   sed -i '' "s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$CI_BUILD_NUMBER\"/" project.yml
 fi
 
-# The API key never lives in the repository. It is an Xcode Cloud environment
-# variable marked secret, and is written into the gitignored file the app expects.
-echo "==> Writing Secrets.swift"
+# The Groq key is NO LONGER embedded in the app — it lives only on the backend
+# proxy (Cloudflare Worker). We still generate Secrets.swift for compatibility, but
+# with an EMPTY key, so no secret is ever compiled into the binary. (BYOK users add
+# their own key at runtime; everyone else routes through the backend.)
+echo "==> Writing Secrets.swift (empty; key is on the backend, not in the app)"
 cat > Sources/DictationCore/Secrets.swift <<SWIFT
 import Foundation
 
-/// Generated at build time. Never committed.
+/// Generated at build time. The Groq key is not embedded in the app anymore; it
+/// lives on the backend proxy. Kept empty for compatibility.
 enum BuildSecrets {
-    static let groqAPIKey = "${GROQ_API_KEY}"
+    static let groqAPIKey = ""
 }
 SWIFT
 
