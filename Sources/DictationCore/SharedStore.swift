@@ -150,19 +150,17 @@ public enum SharedStore {
     /// How long the mic may sit idle before Dictator releases it, in minutes.
     /// 0 means never release.
     ///
-    /// This was a hard-coded five minutes, and it is the one setting that trades
-    /// the two complaints against each other. A short window means the orange dot
-    /// goes away sooner AND — the reason this now defaults short — the user's music
-    /// comes back to full volume sooner: iOS holds other apps' audio at reduced
-    /// volume the entire time the mic is hot, and there is no flag that stops that.
-    /// The cost of a short window is that a lull longer than it costs a trip to the
-    /// app and a swipe back (the mic cannot be reopened from the background). One
-    /// minute keeps back-to-back dictation instant while giving the music straight
-    /// back once the user stops; someone who dictates constantly and doesn't mind
-    /// quieter music can pick a longer window or "Never".
+    /// How long the mic may sit idle before Dictator releases it, in minutes; 0
+    /// means never. This now trades ONLY battery / the orange mic indicator against
+    /// trips back to the app: Dictator no longer ducks or otherwise touches other
+    /// apps' audio (it records over the music), so a shorter window no longer buys
+    /// the user anything on the music front. Thirty minutes covers a normal
+    /// conversation without the mic release landing in the middle of active use;
+    /// the mic cannot be reopened from the background, so once released, a lull
+    /// longer than the window costs a trip to the app and a swipe back.
     public static var idleReleaseMinutes: Int {
         get {
-            guard let d = defaults, d.object(forKey: "idleReleaseMinutes") != nil else { return 1 }
+            guard let d = defaults, d.object(forKey: "idleReleaseMinutes") != nil else { return 30 }
             return d.integer(forKey: "idleReleaseMinutes")
         }
         set { defaults?.set(newValue, forKey: "idleReleaseMinutes") }
@@ -175,23 +173,31 @@ public enum SharedStore {
         set { defaults?.set(newValue, forKey: "cleanupModel") }
     }
 
-    /// One-time migration flag for the music-friendly mic-hold default. The idle
-    /// window used to default to 30 minutes, which meant iOS held the user's music
-    /// at reduced volume for up to half an hour after a single dictation. We now
-    /// default to 1 minute, but an existing install already has a stored value, so
-    /// this flag lets us reset it once (and only once, so a later manual choice
-    /// sticks). See migrateMusicHoldIfNeeded().
+    /// Set by the (now-reverted) 0.1.60 migration that forced the idle window to 1
+    /// minute to get the user's music back sooner. 0.1.61 stopped touching music
+    /// entirely, so that forced short window is no longer wanted; V2 below undoes it.
     public static var musicHoldMigratedV1: Bool {
         get { defaults?.bool(forKey: "musicHoldMigratedV1") ?? false }
         set { defaults?.set(newValue, forKey: "musicHoldMigratedV1") }
     }
 
-    /// Reset the idle window to the new music-friendly default exactly once on an
-    /// install that predates it, then never touch it again so the user's own later
-    /// choice is respected. Safe to call on every launch.
+    /// Corrective one-time migration. 0.1.60 auto-set some installs to a 1-minute
+    /// idle window for a music reason that no longer applies (Dictator no longer
+    /// ducks). If that forced value is still in place, put it back to the 30-minute
+    /// default. Only touches the exact value 0.1.60 forced, so a window the user
+    /// picked themselves is left alone. Runs once.
+    public static var micHoldMigratedV2: Bool {
+        get { defaults?.bool(forKey: "micHoldMigratedV2") ?? false }
+        set { defaults?.set(newValue, forKey: "micHoldMigratedV2") }
+    }
+
+    /// Safe to call on every launch. Undoes the 0.1.60 forced 1-minute window once.
     public static func migrateMusicHoldIfNeeded() {
-        guard !musicHoldMigratedV1 else { return }
-        idleReleaseMinutes = 1
-        musicHoldMigratedV1 = true
+        guard !micHoldMigratedV2 else { return }
+        // Only correct the value 0.1.60's migration forced; respect a deliberate choice.
+        if musicHoldMigratedV1, idleReleaseMinutes == 1 {
+            idleReleaseMinutes = 30
+        }
+        micHoldMigratedV2 = true
     }
 }

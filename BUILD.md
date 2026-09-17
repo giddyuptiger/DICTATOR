@@ -382,6 +382,32 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.61 — never touch the user's music: record over it, don't duck it (2026-09-17)
+
+User's call, and the right one: "What Wispr Flow does is it just doesn't touch
+the music — it records over the music playing. Maybe we just do that: leave the
+music up, and people can turn their music down if they need to."
+
+So Dictator now leaves other apps' audio completely alone:
+
+- Removed ducking entirely (`AudioEngineHost.setDucking` and both calls). The iOS
+  session stays `.playAndRecord` + `.mixWithOthers` the whole time, capturing
+  included, so we never lower, pause, or re-route the user's music. The phone mic
+  hears speech fine over background music; if it's too loud, turning the music
+  down is the user's call, not ours.
+- This deletes the whole "music stayed quiet after dictation / restarted paused
+  music / hijacked the car route / crushed even when idle" family of bugs, since
+  we no longer manipulate the session's ducking at all.
+- Reverted 0.1.60's short mic-hold: its only justification was getting music back
+  sooner, which no longer applies. Idle-release default is back to 30 minutes,
+  picker back to 5 min / 30 min / 2 hours / Never, and the help text drops the
+  music framing (the window is now purely battery vs. trips-back). A corrective
+  one-time migration puts installs 0.1.60 forced to 1 minute back to 30, leaving a
+  deliberately-chosen window untouched.
+
+macOS (fn-hold via AudioRecorder/DictationSession) still ducks; that's a separate
+context and out of scope for this iPhone-driven change.
+
 ### 0.1.60 — music: release the mic fast so other audio returns to full volume (2026-09-17)
 
 Device report (0.1.58): "still crushes music volume even when not recording."

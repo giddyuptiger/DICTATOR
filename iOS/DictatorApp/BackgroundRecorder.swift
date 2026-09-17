@@ -159,9 +159,11 @@ final class AudioEngineHost: @unchecked Sendable {
             // whole time, and its route switches fed the interruption-driven tap
             // crash. Dictation uses the phone mic.
             //
-            // While actually CAPTURING we switch to .duckOthers (see setDucking) so
-            // the music drops out of the way and the mic gets clean speech, then
-            // restore .mixWithOthers when the capture ends.
+            // We stay on .mixWithOthers the WHOLE time, including while capturing:
+            // Dictator records over the user's music rather than ducking it. Not
+            // touching other apps' audio is what users actually want (it's how
+            // Wispr Flow behaves), and it removed a whole family of "music stayed
+            // quiet / restarted / hijacked the route" bugs.
             try session.setCategory(
                 .playAndRecord,
                 mode: .default,
@@ -231,33 +233,15 @@ final class AudioEngineHost: @unchecked Sendable {
         engineQ.async { [weak self] in self?._ensureSilenceAlive() }
     }
 
-    /// Duck other audio (music, podcast, nav) WHILE capturing, then restore full
-    /// volume when the capture ends, so the mic gets clean speech instead of the
-    /// user's music bleeding in (a real problem dictating over car Bluetooth).
-    ///
-    /// The subtlety that bit us: engaging .duckOthers via setCategory takes effect
-    /// immediately, but switching BACK to .mixWithOthers does NOT lift the duck
-    /// until the session is re-activated — so the music stayed quiet after
-    /// dictation and only came back on a force-quit (which deactivates the
-    /// session). So we setActive(true) after changing the options, which applies
-    /// them and lifts the duck. Re-activating with .mixWithOthers does not resume
-    /// audio the user paused by hand — mixWithOthers never interrupts others, and
-    /// only setActive(FALSE) sends the resume signal. Runs on the engine queue so
-    /// it never races a warm-up/rebuild. iOS ducks to roughly a fifth of volume.
-    func setDucking(_ duck: Bool) {
-        engineQ.async { [weak self] in
-            guard let self, self.running else { return }
-            let session = AVAudioSession.sharedInstance()
-            let options: AVAudioSession.CategoryOptions = duck ? [.duckOthers] : [.mixWithOthers]
-            do {
-                try session.setCategory(.playAndRecord, mode: .default, options: options)
-                try session.setActive(true)   // apply the change; this is what LIFTS the duck
-            } catch {
-                // Best effort; if it throws the worst case is the previous ducking
-                // state lingering, which the next capture's toggle corrects.
-            }
-        }
-    }
+    // NOTE: Dictator deliberately does NOT duck other audio. We used to switch to
+    // .duckOthers while capturing (music dropped to ~a fifth), but that fought the
+    // user's music constantly — and the way Wispr Flow does it is simpler and what
+    // users actually prefer: leave the music entirely alone and record over it. The
+    // phone mic hears the user fine above background music; if it's too loud to
+    // dictate over, the user turns their own music down, which is their call to
+    // make, not ours. So the session stays .mixWithOthers the whole time (set in
+    // _startWarm) and we never touch other apps' volume. This also removed the
+    // "music stayed quiet after dictation" class of bugs entirely.
 
     private func _ensureSilenceAlive() {
         guard running else { return }                 // no session to keep alive
@@ -1045,7 +1029,6 @@ public final class BackgroundRecorder: ObservableObject {
         // works from the background: nothing is being started here.
         state = .capturing
         bumpIdleTimer()          // activity: push the idle auto-off back out
-        audio.setDucking(true)   // drop the user's music out of the way while recording
         audio.begin()
         captureStartedAt = Date()
         startLevelTimer()
@@ -1095,7 +1078,6 @@ public final class BackgroundRecorder: ObservableObject {
     public func endCapture() {
         guard state == .capturing else { return }
         let samples = audio.end()
-        audio.setDucking(false)  // recording done — give the user their music back
         stopLevelTimer()
         captureCap?.invalidate()
         captureCap = nil

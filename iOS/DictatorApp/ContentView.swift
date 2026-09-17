@@ -17,9 +17,8 @@ struct DictatorApp: App {
                 .task {
                     installCrashLogger()
                     seedAPIKeyIfNeeded()
-                    // One-time reset of the mic-hold window to the music-friendly
-                    // default (music comes back fast instead of staying quiet for
-                    // up to 30 minutes after a single dictation).
+                    // Undo 0.1.60's forced 1-minute mic-hold once; Dictator no
+                    // longer touches music, so the short window isn't needed.
                     SharedStore.migrateMusicHoldIfNeeded()
                     // Warm-up is triggered from ContentView once onboarding is
                     // done, so the mic prompt does not fire over the onboarding's
@@ -122,7 +121,7 @@ struct ContentView: View {
         }
         .task {
             selectedMode = DictationMode.current
-            SharedStore.migrateMusicHoldIfNeeded()   // idempotent; ensures the picker shows the migrated value
+            SharedStore.migrateMusicHoldIfNeeded()   // idempotent; ensures the picker shows the corrected value
             idleMinutes = SharedStore.idleReleaseMinutes
             refreshChecklist()
             dictionary.reload()
@@ -305,9 +304,9 @@ struct ContentView: View {
     private var micHoldSection: some View {
         section("Keep the microphone ready") {
             Picker("Release after", selection: $idleMinutes) {
-                Text("1 min").tag(1)
                 Text("5 min").tag(5)
                 Text("30 min").tag(30)
+                Text("2 hours").tag(120)
                 Text("Never").tag(0)
             }
             .pickerStyle(.segmented)
@@ -320,16 +319,12 @@ struct ContentView: View {
     }
 
     private var idleBlurb: String {
-        // The honest part: while the mic is hot, iOS lowers other apps' audio, so
-        // "how long we hold the mic" is also "how long your music stays quieter".
         switch idleMinutes {
         case 0:
-            return "Dictator holds the microphone until you turn it off, so the keyboard always dictates in place. Note: while the mic is on, iOS keeps other apps' audio (music, podcasts) a little quieter the whole time."
-        case 1:
-            return "After a minute without dictating, Dictator releases the microphone and your music returns to full volume. Back-to-back dictations stay instant; after a longer pause, the next one opens Dictator and you swipe back. Best if you listen to music while you use it."
+            return "Dictator holds the microphone until you turn it off, so the keyboard always dictates in place. Uses a little more battery, and the orange mic dot stays on."
         default:
             let label = idleMinutes >= 60 ? "\(idleMinutes / 60) hours" : "\(idleMinutes) minutes"
-            return "After \(label) without dictating, Dictator releases the microphone. Fewer trips back to the app, but iOS keeps other apps' audio quieter until the mic is released."
+            return "After \(label) without dictating, Dictator releases the microphone to save battery. Waking it again means opening this app and swiping back, so pick a longer window if that happens often. Dictator never turns your music down — it just records over it."
         }
     }
 
