@@ -382,6 +382,27 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.73 — first design pass: brand it, stop looking like a debug page (2026-09-17)
+
+The main app screen read as a utilitarian debug page. First pass toward a real
+design, and toward the neon "waveform + mustache" app-icon direction:
+
+- Brand palette added (neon teal→blue, `brandCyan`/`brandBlue`/`brandGradient`)
+  matched to the icon concept.
+- New header: a neon `WaveformMark` (gradient bars, echoing the icon) + tagline
+  "Private dictation, right on your iPhone."
+- Sections are now cards: uppercased caption label above a rounded
+  `secondarySystemBackground` card, instead of flat stacked text — the biggest
+  single "it looks designed now" change.
+- Primary buttons tinted to the brand blue.
+
+Left alone deliberately: the wake/swipe screen (owner said it's perfect). Icon PNG
+is exported from the design tool, not generated here. This is a first pass; more
+polish (status hero, empty states, onboarding visuals) to follow.
+
+Also added docs/APP_STORE.md (listing copy, keywords, privacy answers, reviewer
+notes, screenshot plan) — the submission pack.
+
 ### 0.1.72 — stop cleanup from occasionally answering the transcript (2026-09-17)
 
 Device report on the cloud (Groq) cleanup: mostly good, but every so often the

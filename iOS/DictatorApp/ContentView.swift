@@ -87,7 +87,8 @@ struct ContentView: View {
         ZStack {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 20) {
+                    brandHeader
                     statusCard
                     turnButton
                     micHoldSection
@@ -187,6 +188,21 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.25), value: recorder.wokeForDictation)
     }
 
+    // MARK: - Header
+
+    private var brandHeader: some View {
+        VStack(spacing: 12) {
+            WaveformMark()
+                .frame(width: 150, height: 40)
+            Text("Private dictation, right on your iPhone.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
+    }
+
     // MARK: - Status
 
     private var statusCard: some View {
@@ -221,6 +237,13 @@ struct ContentView: View {
     static let pastelGreen = Color(red: 0.36, green: 0.66, blue: 0.45) // sage
     static let pastelRed   = Color(red: 0.85, green: 0.47, blue: 0.44) // soft rose
     static let pastelAmber = Color(red: 0.87, green: 0.66, blue: 0.36) // soft amber
+
+    // Brand accent — neon teal→blue, matched to the app icon (waveform + mustache).
+    static let brandCyan = Color(red: 0.28, green: 0.84, blue: 0.85)
+    static let brandBlue = Color(red: 0.34, green: 0.58, blue: 0.97)
+    static var brandGradient: LinearGradient {
+        LinearGradient(colors: [brandCyan, brandBlue], startPoint: .leading, endPoint: .trailing)
+    }
 
     private var dotColor: Color {
         switch recorder.state {
@@ -273,6 +296,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .tint(Self.brandBlue)
             .frame(maxWidth: .infinity)
         case .failed:
             // A failed warm-up is recoverable, not a dead end: always offer a
@@ -282,6 +306,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .tint(Self.brandBlue)
             .frame(maxWidth: .infinity)
         default:
             Button("Turn off", role: .destructive) {
@@ -514,11 +539,44 @@ struct ContentView: View {
     }
 
     private func section<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.subheadline.bold()).foregroundStyle(.secondary)
-            content()
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title.uppercased())
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+                .tracking(0.5)
+                .padding(.leading, 4)
+            VStack(alignment: .leading, spacing: 10) {
+                content()
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The neon waveform mark from the app icon, drawn as a row of gradient bars.
+private struct WaveformMark: View {
+    // Symmetric-ish amplitude pattern, as a fraction of the available height.
+    private let amps: [CGFloat] = [0.30, 0.62, 0.42, 1.0, 0.55, 0.80, 0.38, 0.92, 0.48, 0.70, 0.28]
+
+    var body: some View {
+        GeometryReader { geo in
+            let count = amps.count
+            let spacing: CGFloat = 6
+            let barW = max((geo.size.width - CGFloat(count - 1) * spacing) / CGFloat(count), 3)
+            HStack(alignment: .center, spacing: spacing) {
+                ForEach(amps.indices, id: \.self) { i in
+                    Capsule()
+                        .fill(ContentView.brandGradient)
+                        .frame(width: barW, height: max(geo.size.height * amps[i], barW))
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
+            .shadow(color: ContentView.brandCyan.opacity(0.35), radius: 6)
+        }
     }
 }
 
