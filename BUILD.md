@@ -382,6 +382,36 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.60 — music: release the mic fast so other audio returns to full volume (2026-09-17)
+
+Device report (0.1.58): "still crushes music volume even when not recording."
+
+Root cause — and the honest one, after three prior music fixes chased different
+bugs (route hijack 0.1.55, duck-during-capture 0.1.56, stuck-duck 0.1.57): iOS
+holds other apps' audio at reduced volume the ENTIRE time an app keeps an active
+recording session, regardless of `.mixWithOthers`. There is no flag to record and
+leave other audio at full volume. Dictator keeps the mic hot for instant
+background dictation, so while the mic is hot the user's music sits quieter — even
+when idle. This is not the duck (that lifts correctly now); it's the baseline
+record-session attenuation.
+
+Fix: stop holding the mic hot so long. The idle-release window used to default to
+30 minutes, so a single dictation left music quieter for up to half an hour. Now:
+
+- Default idle window is 1 minute (was 30). Back-to-back dictations stay instant
+  (the timer resets on each capture); once you stop, the mic releases within a
+  minute and iOS restores other audio to full volume.
+- Mic-hold picker is now 1 min / 5 min / 30 min / Never (dropped 2 hours), and its
+  help text states the music trade-off plainly: a longer hold means fewer trips
+  back to the app but quieter music for longer.
+- One-time migration (`musicHoldMigratedV1`) resets an existing install's window to
+  1 minute once, so the fix reaches users who were on the old 30-minute default;
+  any later manual choice sticks.
+
+Trade-off made explicit to the user: releasing the mic sooner means a lull longer
+than the window costs a trip back to Dictator (the wake screen) to re-arm. A
+future "stay resident so re-waking is instant" pass can shrink that cost further.
+
 ### 0.1.59 — Wispr-style wake screen: "swipe back to your app" (2026-09-17)
 
 When the keyboard wakes Dictator to make it resident (dictator://dictate), the

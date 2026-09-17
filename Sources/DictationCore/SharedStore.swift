@@ -151,14 +151,18 @@ public enum SharedStore {
     /// 0 means never release.
     ///
     /// This was a hard-coded five minutes, and it is the one setting that trades
-    /// the two complaints against each other: a short window means the orange
-    /// dot goes away sooner, and it also means a lull longer than the window
-    /// costs a trip to the app and a manual swipe back, because the mic cannot
-    /// be reopened from the background. Five minutes put that trip in the middle
-    /// of ordinary use. Thirty is long enough to cover a conversation.
+    /// the two complaints against each other. A short window means the orange dot
+    /// goes away sooner AND — the reason this now defaults short — the user's music
+    /// comes back to full volume sooner: iOS holds other apps' audio at reduced
+    /// volume the entire time the mic is hot, and there is no flag that stops that.
+    /// The cost of a short window is that a lull longer than it costs a trip to the
+    /// app and a swipe back (the mic cannot be reopened from the background). One
+    /// minute keeps back-to-back dictation instant while giving the music straight
+    /// back once the user stops; someone who dictates constantly and doesn't mind
+    /// quieter music can pick a longer window or "Never".
     public static var idleReleaseMinutes: Int {
         get {
-            guard let d = defaults, d.object(forKey: "idleReleaseMinutes") != nil else { return 30 }
+            guard let d = defaults, d.object(forKey: "idleReleaseMinutes") != nil else { return 1 }
             return d.integer(forKey: "idleReleaseMinutes")
         }
         set { defaults?.set(newValue, forKey: "idleReleaseMinutes") }
@@ -169,5 +173,25 @@ public enum SharedStore {
     public static var cleanupModel: String? {
         get { defaults?.string(forKey: "cleanupModel") }
         set { defaults?.set(newValue, forKey: "cleanupModel") }
+    }
+
+    /// One-time migration flag for the music-friendly mic-hold default. The idle
+    /// window used to default to 30 minutes, which meant iOS held the user's music
+    /// at reduced volume for up to half an hour after a single dictation. We now
+    /// default to 1 minute, but an existing install already has a stored value, so
+    /// this flag lets us reset it once (and only once, so a later manual choice
+    /// sticks). See migrateMusicHoldIfNeeded().
+    public static var musicHoldMigratedV1: Bool {
+        get { defaults?.bool(forKey: "musicHoldMigratedV1") ?? false }
+        set { defaults?.set(newValue, forKey: "musicHoldMigratedV1") }
+    }
+
+    /// Reset the idle window to the new music-friendly default exactly once on an
+    /// install that predates it, then never touch it again so the user's own later
+    /// choice is respected. Safe to call on every launch.
+    public static func migrateMusicHoldIfNeeded() {
+        guard !musicHoldMigratedV1 else { return }
+        idleReleaseMinutes = 1
+        musicHoldMigratedV1 = true
     }
 }
