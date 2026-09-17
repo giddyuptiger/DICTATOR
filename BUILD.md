@@ -382,6 +382,29 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.58 — fix the flickering "Open Dictator" pill (mic-dead != app-alive) (2026-09-17)
+
+Device report: the "Open Dictator once to restart the mic" pill flickered and
+tapping it never opened the app; going back to the app then tapping cycled
+"Starting" → "Open Dictator" → "Tap to talk" forever; only manually opening
+Dictator worked. Log showed a tight loop: "start: mic not live; rebuilding
+instead of capturing" + "resync deferred: backgrounded, keeping the app alive".
+
+Root cause: the heartbeat stamped liveState = "warm" whenever the app was
+resident, even when the MIC engine was dead (killed by a background interruption
+and un-rebuildable until foreground). The keyboard reads liveState as "app ready
+to record", so it showed "Tap to talk", the tap tried to record into a dead mic,
+the app answered "open me", and the keyboard — treating that non-retryable error
+as .ready — let the next tap record again. Infinite loop; the pill never reached
+the .needsSession state whose tap actually OPENS the app.
+
+Fix (app-side, one place): when warm-but-mic-dead, stamp liveState "cold" instead
+of "warm". The keyboard then shows the wake pill, and a tap runs coldStart and
+opens Dictator (foreground → mic rebuild → ready). No keyboard change needed.
+
+Note: this loop was a two-session collision (both sessions editing the audio
+state machine). Consolidating ownership is overdue.
+
 ### 0.1.57 — lift the duck properly (music was staying quiet) (2026-09-17)
 
 Device report on 0.1.56: music ducks correctly when dictation starts, but never

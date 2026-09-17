@@ -856,7 +856,20 @@ public final class BackgroundRecorder: ObservableObject {
                 // works wherever we are, which is exactly where it is needed.
                 self.checkKeepAlive()
 
-                SharedStore.setLiveState(self.state.shortName)
+                // Tell the keyboard the truth about the MIC, not just the app.
+                // When we are backgrounded with a dead mic, the health checks
+                // above don't fire (they need the foreground), so we'd otherwise
+                // stamp "warm" — the keyboard then shows "Tap to talk", tries to
+                // record into a dead mic, fails, and loops (the flickering pill).
+                // Stamping a not-ready state instead makes the keyboard show "open
+                // the app", and a tap OPENS Dictator (foreground → mic rebuild →
+                // ready). Only overrides the warm-but-mic-dead case; capturing and
+                // transcribing keep their real state.
+                if self.state == .warm, !self.audio.isRunning {
+                    SharedStore.setLiveState("cold")
+                } else {
+                    SharedStore.setLiveState(self.state.shortName)
+                }
             }
         }
         RunLoop.main.add(t, forMode: .common)
