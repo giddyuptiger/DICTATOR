@@ -74,6 +74,19 @@ public struct Cleaner: Sendable {
                 return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup refused; used raw transcript")
             }
 
+            // Content-fidelity guard. Cleanup must reformat, not summarize. A small
+            // model sometimes returns a tidy paragraph that has quietly DROPPED what
+            // the user said (seen on device: rambling/repeated speech came back
+            // shorter and gutted). Removing "um"s trims a little; losing half the
+            // words means content was cut. If the cleaned text is under half the
+            // word count of a non-trivial transcript, keep the user's actual words.
+            let rawWords = trimmed.split(whereSeparator: \.isWhitespace).count
+            let cleanWords = cleanedTrimmed.split(whereSeparator: \.isWhitespace).count
+            if rawWords >= 12, cleanWords * 2 < rawWords {
+                let text = dictionary.apply(to: trimmed)
+                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup dropped too much (\(rawWords)→\(cleanWords) words); used raw transcript")
+            }
+
             // Dictionary runs after the model, so it wins any disagreement.
             // Use the TRIMMED text: models routinely return a trailing newline or
             // a leading space, and inserting that verbatim drops the caret onto a

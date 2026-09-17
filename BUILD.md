@@ -382,6 +382,26 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.67 — never let cleanup drop the user's words (2026-09-17)
+
+Device report: a rambling dictation came back "a lot nicer as a paragraph, but it
+cut out what I said" — the cleanup LLM deleted repeated/rambling content ("blah blah
+blah, day day day"). Inconsistent (sometimes kept it), i.e. the model editorializing.
+
+For a dictation app, silently dropping content is a serious bug. Two fixes:
+
+1. Prompt (ToneProfile base CLEANUP): removed the over-broad "remove false starts
+   and self-corrections / keep only the final version" rule that invited the model
+   to cut repetition. Now it removes only true disfluencies (um/uh) and a plain
+   self-correction, with an explicit FIDELITY-IS-PARAMOUNT rule: never drop,
+   shorten, summarize, or paraphrase; keep every substantive word, including
+   repetition and tangents; when unsure, keep it.
+2. Safety net (Cleaner.process): if the cleaned text is under half the word count of
+   a non-trivial transcript (≥12 words), treat it as content-dropping and fall back
+   to the raw transcript (dictionary-applied), alongside the existing empty/refusal
+   guards. Removing filler trims a little; losing half the words means content was
+   cut.
+
 ### 0.1.66 — on-device transcription (opt-in): the free-tier engine (2026-09-17)
 
 First step of the business plan's free tier: wire the on-device Parakeet model

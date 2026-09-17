@@ -41,9 +41,17 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     unchanged.
 
     CLEANUP:
-    - Remove filler: um, uh, like, you know, I mean, sort of, kind of.
-    - Remove false starts and self-corrections. If the speaker restates something, \
-    keep only the final version.
+    - Remove ONLY true disfluencies: "um", "uh", "er", and filler uses of "like", \
+    "you know", "I mean" that carry no meaning.
+    - Remove a self-correction ONLY when the speaker plainly replaces what they just \
+    said ("meet at five, no wait, six" -> "meet at six"). Do NOT treat repetition, \
+    emphasis, listing, or rambling as a correction.
+    - FIDELITY IS PARAMOUNT. Never drop, shorten, summarize, paraphrase, or "tidy \
+    up" the speaker's content. Keep every substantive word they said, including \
+    repeated words, tangents, and asides. You format punctuation and paragraphs; \
+    you are NOT an editor and must not decide something is not worth keeping. When \
+    unsure whether a word is filler, KEEP it. The output should contain essentially \
+    everything the speaker said, only cleaner.
     - Add correct punctuation, capitalization, and paragraph breaks.
     - ALWAYS end a question with a question mark. This includes questions phrased \
     as statements ("you're coming tonight" said as a question -> "you're coming \
