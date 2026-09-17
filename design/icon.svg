@@ -1,57 +1,46 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Dictator app icon — minimal green line art: soundwave + sunglasses + mustache.
-     1024x1024. Open in a browser to view; export to PNG at 1024 for the app icon
-     (icons can't be transparent, so keep the dark background). -->
+<!-- Dictator app icon — the soundwave forms the sunglasses (two lenses), with the
+     wave running out as the temple arms, and a handlebar mustache below. Green neon
+     on dark. 1024x1024; export to PNG for the icon (no transparency, no text). -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#37E39B"/>
-      <stop offset="1" stop-color="#12A45C"/>
-    </linearGradient>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0F1A16"/>
-      <stop offset="1" stop-color="#0A0F0D"/>
+      <stop offset="0" stop-color="#0E1A15"/>
+      <stop offset="1" stop-color="#070B09"/>
     </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4BF0A8"/>
+      <stop offset="1" stop-color="#18BE6E"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
   </defs>
 
-  <!-- background (full-bleed; iOS masks the corners) -->
   <rect width="1024" height="1024" fill="url(#bg)"/>
 
-  <!-- soundwave: rounded bars -->
-  <g fill="url(#g)">
-    <rect x="272" y="312" width="20" height="56"  rx="10"/>
-    <rect x="318" y="280" width="20" height="120" rx="10"/>
-    <rect x="364" y="298" width="20" height="84"  rx="10"/>
-    <rect x="410" y="250" width="20" height="180" rx="10"/>
-    <rect x="456" y="285" width="20" height="110" rx="10"/>
-    <rect x="502" y="235" width="20" height="210" rx="10"/>
-    <rect x="548" y="285" width="20" height="110" rx="10"/>
-    <rect x="594" y="250" width="20" height="180" rx="10"/>
-    <rect x="640" y="298" width="20" height="84"  rx="10"/>
-    <rect x="686" y="280" width="20" height="120" rx="10"/>
-    <rect x="732" y="312" width="20" height="56"  rx="10"/>
-  </g>
+  <g fill="none" stroke="url(#green)" stroke-width="14"
+     stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
 
-  <!-- sunglasses -->
-  <g fill="none" stroke="url(#g)" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="300" y="500" width="170" height="120" rx="46"/>
-    <rect x="554" y="500" width="170" height="120" rx="46"/>
+    <!-- left lens + right lens (the sunglasses) -->
+    <circle cx="410" cy="430" r="82"/>
+    <circle cx="614" cy="430" r="82"/>
     <!-- bridge over the nose -->
-    <path d="M470 528 Q512 508 554 528"/>
-    <!-- temple arms -->
-    <path d="M300 522 L266 504"/>
-    <path d="M724 522 L758 504"/>
-  </g>
+    <path d="M492 416 Q512 398 532 416"/>
 
-  <!-- handlebar mustache -->
-  <g fill="none" stroke="url(#g)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M512 706
-             C 470 728, 430 726, 402 708
-             C 374 690, 368 666, 392 662
-             C 410 659, 416 678, 404 690"/>
-    <path d="M512 706
-             C 554 728, 594 726, 622 708
-             C 650 690, 656 666, 632 662
-             C 614 659, 608 678, 620 690"/>
+    <!-- the soundwave runs out of each lens as the temple arms -->
+    <polyline points="328,430 306,404 286,456 264,408 242,452 220,414 198,442 176,430"/>
+    <polyline points="696,430 718,404 738,456 760,408 782,452 804,414 826,442 848,430"/>
+
+    <!-- handlebar mustache -->
+    <path d="M512 606
+             C 456 636, 410 632, 380 602
+             C 352 574, 360 538, 392 536
+             C 416 535, 420 562, 402 574"/>
+    <path d="M512 606
+             C 568 636, 614 632, 644 602
+             C 672 574, 664 538, 632 536
+             C 608 535, 604 562, 622 574"/>
   </g>
 </svg>
