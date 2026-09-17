@@ -42,7 +42,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private enum Mode: Equatable {
         case needsFullAccess
-        case needsKey
+        case needsSetup        // first run: onboarding not finished yet
         case needsSession      // app not running: cold start required
         case waking            // launching the app, waiting for it to come alive
         case ready
@@ -316,17 +316,20 @@ final class KeyboardViewController: UIInputViewController {
         // right after a reinstall or a keyboard switch, which is exactly what made
         // the pill bounce waking → "Tap to talk" → "Turn on Full Access". Trust
         // the empirical signal (is the app actually answering?) over the flag.
+        // No API-key gate anymore. Transcription no longer needs a user-supplied
+        // key: the container app always has a path (on-device, or the backend
+        // proxy). A live, reachable app is all this keyboard requires.
         if appIsAlive {
-            guard let k = SharedStore.groqAPIKey, !k.isEmpty else { mode = .needsKey; return }
             wakeMessage = nil   // a live app clears any stale "couldn't open" note
             mode = .ready
             return
         }
         // The app is not answering. Point at the most useful fix: without Full
         // Access the app also can't be launched from here, so surface that first;
-        // otherwise it just needs waking (or a key).
+        // then, if the user has never finished first-run setup, send them to do
+        // it; otherwise the app just needs waking.
         if !hasFullAccess { mode = .needsFullAccess; return }
-        guard let k = SharedStore.groqAPIKey, !k.isEmpty else { mode = .needsKey; return }
+        if !SharedStore.onboardingDone { mode = .needsSetup; return }
         mode = .needsSession
     }
 
@@ -340,7 +343,7 @@ final class KeyboardViewController: UIInputViewController {
         // right after typing (the pill "just flickered"), which is worse. So act on
         // every tap.
         switch mode {
-        case .needsFullAccess, .needsKey:
+        case .needsFullAccess, .needsSetup:
             // Both are fixed in the app. Try to open it so the user is not stuck.
             coldStart()
         case .needsSession:
@@ -713,9 +716,9 @@ final class KeyboardViewController: UIInputViewController {
         case .needsFullAccess:
             applyPill(Self.pillAmber)
             statusLabel.text = "Turn on Full Access for Dictator"
-        case .needsKey:
+        case .needsSetup:
             applyPill(Self.pillAmber)
-            statusLabel.text = "Add your Groq key in Dictator"
+            statusLabel.text = "Complete setup in Dictator"
         case .needsSession:
             applyPill(Self.pillBlue)
             // Honest copy: a keyboard extension cannot reliably launch its

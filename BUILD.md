@@ -382,6 +382,21 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.79 — kill the phantom "Add your Groq key" dead-end in the keyboard (2026-09-17)
+
+- Bug: the keyboard still gated on a user Groq key (`refreshMode`) even though 0.1.74
+  removed that requirement — transcription always has a path now (on-device, or the
+  backend proxy). So `groqAPIKey` was empty for everyone and the pill was permanently
+  stuck on "Add your Groq key in Dictator," which tapped straight into the wake screen
+  and swiped right back: an inescapable loop, over jargon no user understands.
+- Fix: removed the `.needsKey` gate entirely. A live, reachable app → `.ready`. When
+  the app isn't reachable: no Full Access → "Turn on Full Access"; onboarding not done
+  → new `.needsSetup` pill "Complete setup in Dictator" (plain language, keyed off
+  `SharedStore.onboardingDone`); otherwise → "Open the Dictator app to wake it." Every
+  one of these resolves once the app is opened, so no more loop.
+- Left the app-side BYOK `GroqError` messages as-is: they only appear when a user has
+  deliberately pasted their own key, not on the default route.
+
 ### 0.1.78 — real app icon generated from the logo (2026-09-17)
 
 - App icon: generated the 1024 icon straight from `design/logo.svg` — the neon green
