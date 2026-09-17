@@ -1,0 +1,5 @@
+# Fill apple_id with your Apple ID email, or use an App Store Connect API key
+# (recommended) via ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY env vars in the Fastfile.
+app_identifier("design.irons.dictator")
+# apple_id("you@example.com")   # optional if using an API key
+# team_id("W9K8HB89TY")         # your Apple Developer Team ID

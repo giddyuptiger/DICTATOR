@@ -1,0 +1,23 @@
+Dictator is a dictation keyboard that turns your voice into clean, formatted text in any app — messages, email, notes, anywhere you can type.
+
+WHAT MAKES IT DIFFERENT
+
+- On-device transcription. Your speech is turned into text right on your iPhone, so your voice never has to leave your device. It even works offline.
+
+- Actually clean text. Dictator doesn't just transcribe — it fixes punctuation and capitalization, drops the "um"s and false starts, and breaks long thoughts into real paragraphs. You get text you'd have typed, not a raw dump.
+
+- Modes for how you want to sound. Super Casual, Casual, Formal, Expressive, and Emoji. Pick the register; Dictator matches it.
+
+- Your words, your way. Add names and terms to your vocabulary and Dictator spells them correctly every time.
+
+- It respects your music. Dictator records over whatever you're listening to — it never pauses, ducks, or hijacks your music or car audio.
+
+HOW IT WORKS
+
+Tap the mic on the Dictator keyboard, speak, and your words appear where your cursor is. Because iOS keyboards can't use the microphone directly, Dictator does the listening in its app and keeps it ready in the background so dictation is instant.
+
+PRIVACY FIRST
+
+Your audio is transcribed on your device and never uploaded. The text-cleanup step uses a fast, secure service to format your words. No account required. No ads. No tracking.
+
+Dictator is a fast, private alternative to dictation tools that cost $15/month.

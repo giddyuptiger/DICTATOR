@@ -1,0 +1,10 @@
+# `fastlane deliver` uploads the metadata + screenshots below to App Store Connect.
+# It does NOT submit for review unless you pass submit_for_review:true.
+app_identifier("design.irons.dictator")
+# Upload metadata only (no binary — the build comes from Xcode Cloud / TestFlight):
+skip_binary_upload(true)
+# Screenshots: drop PNGs into fastlane/screenshots/en-US, then set this to false.
+skip_screenshots(true)
+# Safe default: review + submit by hand in ASC the first time.
+submit_for_review(false)
+force(true)   # don't prompt for confirmation of the HTML preview
