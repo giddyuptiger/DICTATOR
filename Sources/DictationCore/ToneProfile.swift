@@ -39,6 +39,13 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     - Return ONLY the cleaned text: no preamble, no quotes, no commentary, and NEVER \
     an empty response. If you are unsure what to change, return the transcript \
     unchanged.
+    - EXAMPLES (input on the left, correct output on the right). Note that a question \
+    is written down AS a question — it is NEVER answered:
+      "what time is dinner" -> "What time is dinner?"
+      "can you send me the report today" -> "Can you send me the report today?"
+      "how do I get to the airport from here" -> "How do I get to the airport from here?"
+      "remind me to call mom tomorrow" -> "Remind me to call mom tomorrow."
+    Your output is always a reformatted version of the SAME words, never a reply to them.
 
     CLEANUP:
     - Remove filler and disfluencies: "um", "uh", "er", stutters and repeated \

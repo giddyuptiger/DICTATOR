@@ -99,6 +99,24 @@ public struct Cleaner: Sendable {
                 return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup expanded too much (\(rawWords)→\(cleanWords) words); used raw transcript")
             }
 
+            // Answer guard (catches the case the length guards miss). A cleanup that
+            // REPLIES to the transcript instead of reformatting it won't contain the
+            // user's own words — reformatting keeps almost all of them (it only fixes
+            // punctuation and drops filler). If fewer than 60% of the raw words
+            // survive into the output, the model answered/questioned back rather than
+            // reformatted; keep the user's actual words.
+            func wordSet(_ s: String) -> Set<String> {
+                Set(s.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
+            }
+            let rawSet = wordSet(trimmed)
+            if rawSet.count >= 5 {
+                let kept = Double(rawSet.intersection(wordSet(cleanedTrimmed)).count) / Double(rawSet.count)
+                if kept < 0.6 {
+                    let text = dictionary.apply(to: trimmed)
+                    return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: String(format: "cleanup diverged (kept %.0f%% of words); used raw transcript", kept * 100))
+                }
+            }
+
             // Dictionary runs after the model, so it wins any disagreement.
             // Use the TRIMMED text: models routinely return a trailing newline or
             // a leading space, and inserting that verbatim drops the caret onto a

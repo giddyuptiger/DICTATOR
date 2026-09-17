@@ -382,6 +382,24 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.72 — stop cleanup from occasionally answering the transcript (2026-09-17)
+
+Device report on the cloud (Groq) cleanup: mostly good, but every so often the
+small cleanup model REPLIES to the transcript instead of reformatting it (answers a
+dictated question, etc.) — unacceptable for a dictation app. Two hardenings:
+
+1. Prompt: added concrete few-shot examples to the base cleanup prompt showing a
+   dictated question written down AS a question, never answered ("what time is
+   dinner" -> "What time is dinner?"), plus a closing line that the output is always
+   a reformat of the same words, never a reply.
+2. Answer guard in Cleaner.process: compares the word sets of the raw transcript and
+   the cleaned output; if fewer than 60% of the user's own words survive (i.e. the
+   model wrote something else), it falls back to the raw transcript. This catches
+   replies the length guards miss (a short answer isn't necessarily longer/shorter).
+
+Together with the existing empty/refusal/shrink/expand guards, an off-task cleanup
+now degrades to the user's real words instead of an inserted reply.
+
 ### 0.1.71 — drop on-device cleanup (not good enough); keep cloud cleanup (2026-09-17)
 
 Device verdict on 0.1.70: Apple's on-device cleanup is unusable for this — it
