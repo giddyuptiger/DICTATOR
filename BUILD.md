@@ -382,6 +382,15 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.78 — real app icon generated from the logo (2026-09-17)
+
+- App icon: generated the 1024 icon straight from `design/logo.svg` — the neon green
+  soundwave (glasses) + mustache on a dark charcoal background with a soft green glow,
+  matching the wake screen. Replaced the old placeholder in the asset catalog. Flattened
+  to opaque RGB (no alpha) so App Store validation accepts it; verified it still reads at
+  120px (home-screen size). Full size set also exported to `design/appicon/` for any other
+  use. Icon was rasterized with `cairosvg` + `Pillow` — no manual export needed.
+
 ### 0.1.77 — better on-device accuracy on capable phones; status-card polish (2026-09-17)
 
 - Accuracy: on-device transcription now picks the Parakeet tier by device RAM — the
