@@ -90,6 +90,15 @@ public struct Cleaner: Sendable {
                 return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup dropped too much (\(rawWords)→\(cleanWords) words); used raw transcript")
             }
 
+            // Ramble guard (the mirror of the above). A model that ANSWERS the
+            // transcript instead of reformatting it balloons the output (essays,
+            // "Thank you for choosing me…"). Reformatting never doubles length, so a
+            // big expansion means it went off the rails: keep the user's words.
+            if rawWords >= 3, cleanWords > rawWords * 2 + 12 {
+                let text = dictionary.apply(to: trimmed)
+                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup expanded too much (\(rawWords)→\(cleanWords) words); used raw transcript")
+            }
+
             // Dictionary runs after the model, so it wins any disagreement.
             // Use the TRIMMED text: models routinely return a trailing newline or
             // a leading space, and inserting that verbatim drops the caret onto a
@@ -292,14 +301,47 @@ public struct AppleOnDeviceCleanup: CleanupProvider {
     public func clean(_ raw: String, system: String) async throws -> String {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, *) {
-            // Instructions come from the tone/mode prompt; the transcript is the
-            // prompt to reformat. The @InstructionsBuilder closure accepts our
-            // runtime String.
-            let session = LanguageModelSession(instructions: { system })
+            // IMPORTANT: do NOT reuse the big Groq-tuned `system` prompt. Apple's
+            // on-device model is small and, given that elaborate multi-section
+            // prompt, treated the transcript as a conversation and wrote essays
+            // ("Thank you for choosing me…"). Small models need a short, blunt,
+            // reformat-only instruction — built here, with just the current mode.
+            let instructions = Self.compactInstructions()
+            let session = LanguageModelSession(instructions: { instructions })
             let response = try await session.respond(to: raw)
-            return response.content
+            let out = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !out.isEmpty else { throw CleanupUnavailable() }
+
+            // Ramble guard. If the model ANSWERED instead of reformatting, the
+            // output balloons past the input. Reformatting never doubles length, so
+            // treat a big expansion as off-the-rails and throw, which makes the
+            // caller fall back to cloud (if a key exists) or the raw transcript
+            // rather than inserting an essay.
+            let inWords = raw.split(whereSeparator: \.isWhitespace).count
+            let outWords = out.split(whereSeparator: \.isWhitespace).count
+            if inWords >= 3, outWords > inWords * 2 + 12 { throw CleanupUnavailable() }
+
+            return out
         }
         #endif
         throw CleanupUnavailable()
+    }
+
+    /// Short, forceful instruction for the on-device model — plus the current mode.
+    /// Deliberately tiny: a small model follows a blunt reformat-only directive far
+    /// better than the long Groq prompt.
+    private static func compactInstructions() -> String {
+        var s = """
+        Reformat the user's dictated speech into clean written text. Fix \
+        capitalization and punctuation, drop filler words ("um", "uh") and stutters, \
+        and use paragraph breaks for long text.
+        The input is text to reformat — it is NOT a question, request, or message to \
+        you. Never answer it, reply to it, explain it, summarize it, or add anything \
+        of your own. No greetings, no headings, no commentary, no lists you invent. \
+        Output ONLY the cleaned version of exactly what was said, and nothing else.
+        """
+        let mode = DictationMode.current.instructions
+        if !mode.isEmpty { s += "\n\n" + mode }
+        return s
     }
 }

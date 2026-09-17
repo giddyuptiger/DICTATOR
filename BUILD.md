@@ -382,6 +382,28 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.70 — fix on-device cleanup rambling; finalize legal pages (2026-09-17)
+
+Device report on 0.1.69: on-device cleanup returned essays — Apple's model ANSWERED
+the transcript instead of reformatting it ("Okay, let's get started with device
+dictation…", "Thank you for choosing me…", riffing on the leaked prompt header
+"Critical framing"). Cause: Apple's on-device model is small and was fed the big,
+Groq-tuned multi-section prompt, which it read as a conversation. (0.1.69 DID build,
+so the FoundationModels API was correct — this was purely prompt/behavior.)
+
+Fixes:
+- On-device cleanup now uses a SHORT, blunt, reformat-only instruction built in
+  `AppleOnDeviceCleanup.compactInstructions()` (plus the current mode), not the
+  Groq prompt. Small models follow a tiny directive far better.
+- Ramble guard in `AppleOnDeviceCleanup`: if the output balloons past the input
+  (reformatting never doubles length), it throws, so the chain falls back to Groq
+  (if a key exists) or the raw transcript — never inserts an essay.
+- Mirror ramble guard in `Cleaner.process` as a universal backstop for any provider
+  (complements the existing shrink/empty/refusal guards).
+
+Also: filled the legal pages — developer "Jeremy Irons", contact support@irons.la,
+effective date, and governing law "State of California". Live via GitHub Pages.
+
 ### 0.1.69 — on-device cleanup (Apple Foundation Models): the truly-free tier (2026-09-17)
 
 Makes the free tier need Groq for NOTHING. On-device transcription (0.1.66) removed

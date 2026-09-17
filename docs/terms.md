@@ -70,7 +70,7 @@ violate these Terms.
 
 ## 9. Governing law
 
-These Terms are governed by the laws of [YOUR STATE / COUNTRY], without regard to
+These Terms are governed by the laws of the State of California, United States, without regard to
 conflict-of-laws rules.
 
 ## 10. Apple standard EULA
