@@ -382,6 +382,20 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.57 — lift the duck properly (music was staying quiet) (2026-09-17)
+
+Device report on 0.1.56: music ducks correctly when dictation starts, but never
+comes back up — it stays quiet until Dictator is force-quit (which deactivates
+the session). Also "music is down whenever the mic's been on recently" = a duck
+from an earlier dictation that never lifted.
+
+Cause: engaging .duckOthers via setCategory takes effect immediately, but
+switching back to .mixWithOthers does NOT lift the duck without re-activating the
+session. setDucking now calls setActive(true) after changing the options, which
+applies them and lifts the duck. Re-activating with .mixWithOthers does not
+resume hand-paused audio (only setActive(false) sends resume; mixWithOthers never
+interrupts).
+
 ### 0.1.56 — duck the music while dictating; stop hijacking the car route (2026-09-17)
 
 Device report (dictating over car Bluetooth): music jumped from the car to the

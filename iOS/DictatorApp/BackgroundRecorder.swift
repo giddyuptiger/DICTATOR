@@ -231,18 +231,31 @@ final class AudioEngineHost: @unchecked Sendable {
         engineQ.async { [weak self] in self?._ensureSilenceAlive() }
     }
 
-    /// Duck other audio (music, podcast, nav) WHILE capturing, then restore the
-    /// mix when the capture ends, so the mic gets clean speech instead of the
+    /// Duck other audio (music, podcast, nav) WHILE capturing, then restore full
+    /// volume when the capture ends, so the mic gets clean speech instead of the
     /// user's music bleeding in (a real problem dictating over car Bluetooth).
-    /// Reconfigures the live session's options; no setActive, so it does not
-    /// resume audio the user paused by hand. Runs on the engine queue so it never
-    /// races a warm-up/rebuild. iOS ducks to roughly a fifth of full volume.
+    ///
+    /// The subtlety that bit us: engaging .duckOthers via setCategory takes effect
+    /// immediately, but switching BACK to .mixWithOthers does NOT lift the duck
+    /// until the session is re-activated — so the music stayed quiet after
+    /// dictation and only came back on a force-quit (which deactivates the
+    /// session). So we setActive(true) after changing the options, which applies
+    /// them and lifts the duck. Re-activating with .mixWithOthers does not resume
+    /// audio the user paused by hand — mixWithOthers never interrupts others, and
+    /// only setActive(FALSE) sends the resume signal. Runs on the engine queue so
+    /// it never races a warm-up/rebuild. iOS ducks to roughly a fifth of volume.
     func setDucking(_ duck: Bool) {
         engineQ.async { [weak self] in
             guard let self, self.running else { return }
             let session = AVAudioSession.sharedInstance()
             let options: AVAudioSession.CategoryOptions = duck ? [.duckOthers] : [.mixWithOthers]
-            try? session.setCategory(.playAndRecord, mode: .default, options: options)
+            do {
+                try session.setCategory(.playAndRecord, mode: .default, options: options)
+                try session.setActive(true)   // apply the change; this is what LIFTS the duck
+            } catch {
+                // Best effort; if it throws the worst case is the previous ducking
+                // state lingering, which the next capture's toggle corrects.
+            }
         }
     }
 
