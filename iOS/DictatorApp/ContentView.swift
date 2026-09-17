@@ -228,11 +228,11 @@ struct ContentView: View {
     static let pastelRed   = Color(red: 0.85, green: 0.47, blue: 0.44) // soft rose
     static let pastelAmber = Color(red: 0.87, green: 0.66, blue: 0.36) // soft amber
 
-    // Brand accent — neon teal→blue, matched to the app icon (waveform + mustache).
-    static let brandCyan = Color(red: 0.28, green: 0.84, blue: 0.85)
-    static let brandBlue = Color(red: 0.34, green: 0.58, blue: 0.97)
+    // Brand accent — green, matched to the app icon (soundwave + sunglasses + mustache).
+    static let brandGreen = Color(red: 0.22, green: 0.89, blue: 0.61)     // #37E39B
+    static let brandGreenDeep = Color(red: 0.07, green: 0.64, blue: 0.36) // #12A45C
     static var brandGradient: LinearGradient {
-        LinearGradient(colors: [brandCyan, brandBlue], startPoint: .leading, endPoint: .trailing)
+        LinearGradient(colors: [brandGreen, brandGreenDeep], startPoint: .leading, endPoint: .trailing)
     }
 
     private var dotColor: Color {
@@ -286,7 +286,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .tint(Self.brandBlue)
+            .tint(Self.brandGreenDeep)
             .frame(maxWidth: .infinity)
         case .failed:
             // A failed warm-up is recoverable, not a dead end: always offer a
@@ -296,7 +296,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .tint(Self.brandBlue)
+            .tint(Self.brandGreenDeep)
             .frame(maxWidth: .infinity)
         default:
             Button("Turn off", role: .destructive) {
@@ -566,7 +566,7 @@ private struct WaveformMark: View {
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
-            .shadow(color: ContentView.brandCyan.opacity(0.35), radius: 6)
+            .shadow(color: ContentView.brandGreen.opacity(0.35), radius: 6)
         }
     }
 }
@@ -591,9 +591,9 @@ private struct WaveformMark: View {
 private struct WakeScreen: View {
     let onDismiss: () -> Void
 
-    // Dictator's purple, matched to the app icon / keyboard accent.
-    private static let brandTop    = Color(red: 0.42, green: 0.34, blue: 0.86)
-    private static let brandBottom = Color(red: 0.60, green: 0.38, blue: 0.92)
+    // Dictator's green, matched to the app icon / keyboard accent.
+    private static let brandTop    = Color(red: 0.22, green: 0.89, blue: 0.61) // #37E39B
+    private static let brandBottom = Color(red: 0.07, green: 0.64, blue: 0.36) // #12A45C
 
     var body: some View {
         ZStack {

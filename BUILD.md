@@ -382,6 +382,19 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.76 — green brand + logo (soundwave + sunglasses + mustache) (2026-09-17)
+
+New brand direction: a minimal green line-art mark (soundwave over sunglasses over a
+handlebar mustache), in `design/icon.svg` (open in a browser; export to a 1024 PNG
+for the app icon — icons can't be transparent, so keep the dark background).
+
+App recolored from teal/blue to green to match: `brandGreen` (#37E39B) /
+`brandGreenDeep` (#12A45C) / `brandGradient`; header waveform, primary buttons, and
+the wake screen all use the green now.
+
+The actual AppIcon PNG still needs exporting from the SVG (or a design tool) and
+dropping into Assets — can't render a PNG in this environment.
+
 ### 0.1.75 — onboarding rework: no more Groq-key step (2026-09-17)
 
 Now that the key lives on the backend, first-run no longer asks the user to create
