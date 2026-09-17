@@ -70,7 +70,6 @@ struct ContentView: View {
     @State private var showCorrection = false
 
     // Live setup checklist, refreshed on appear and when the app returns.
-    @State private var keyDone = false
     @State private var keyboardAdded = false
     @State private var fullAccess = false
 
@@ -472,8 +471,9 @@ struct ContentView: View {
         section("Setup") {
             // No "Groq key" step anymore — transcription is on-device and cleanup
             // goes through the backend, so no key is required to use Dictator.
-            checklistRow(done: keyboardAdded, title: "Dictator keyboard added", step: 2)
-            checklistRow(done: fullAccess, title: "Full Access on", step: 3)
+            // Steps map to the reworked 4-step onboarding (keyboard = 1, Full Access = 2).
+            checklistRow(done: keyboardAdded, title: "Dictator keyboard added", step: 1)
+            checklistRow(done: fullAccess, title: "Full Access on", step: 2)
         }
     }
 
@@ -496,7 +496,6 @@ struct ContentView: View {
     }
 
     private func refreshChecklist() {
-        keyDone = !(SharedStore.groqAPIKey ?? "").isEmpty
         let installed = (UserDefaults.standard.array(forKey: "AppleKeyboards") as? [String]) ?? []
         keyboardAdded = installed.contains { $0.hasPrefix("design.irons.dictator.keyboard") }
         // The keyboard can only write to the App Group with Full Access, so a

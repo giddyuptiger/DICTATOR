@@ -9,8 +9,8 @@ bracketed bits. Dated 2026-09-17.
 ---
 
 ## Basics
-- **Name:** Dictator
-- **Subtitle (≤30 chars):** `Private on-device dictation` (27)
+- **Name:** `DICTATOR: Speech To Text` (24 chars — fits the 30 limit)
+- **Subtitle (≤30 chars):** `Private, on-device dictation` (28)
 - **Primary category:** Productivity
 - **Secondary category:** Utilities
 - **Age rating:** 4+
@@ -19,8 +19,8 @@ bracketed bits. Dated 2026-09-17.
 - **Privacy Policy URL:** https://giddyuptiger.github.io/DICTATOR/privacy-policy.html
 - **Bundle ID:** design.irons.dictator
 
-> ⚠️ Check the name "Dictator" isn't taken/too-generic in App Store Connect. Backup
-> names: "Dictator — Voice Keyboard", "Dictator Dictation".
+> ⚠️ Confirm "DICTATOR: Speech To Text" is available in App Store Connect. Backups:
+> "Dictator — Voice Keyboard", "Dictator: Voice Typing".
 
 ## Promotional text (≤170 chars)
 > Dictate anywhere with a keyboard that turns speech into clean text — transcribed

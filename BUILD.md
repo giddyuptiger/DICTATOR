@@ -382,6 +382,16 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.75 — onboarding rework: no more Groq-key step (2026-09-17)
+
+Now that the key lives on the backend, first-run no longer asks the user to create
+and paste a Groq key. Onboarding went from 5 steps to 4: add keyboard → Full Access
+explainer → microphone → try it. Removed the key screen, its validation, and the
+key-related state. Updated the Full Access copy to reflect the real data flow
+(on-device transcription; only cleanup contacts the server). Setup checklist step
+numbers realigned (keyboard = 1, Full Access = 2), and the leftover unused keyDone
+state removed. App Store name recorded as "DICTATOR: Speech To Text".
+
 ### 0.1.74 — route through the backend; remove the embedded key (2026-09-17)
 
 The launch-blocker fix. The Groq key no longer ships in the app; cloud transcription

@@ -5,23 +5,25 @@ import UIKit
 // Note: DictationCore is compiled directly into this target as source
 // (see project.yml), not linked as a module, so there is nothing to import.
 
-/// First run: five screens, one each, from install to a working dictation. The
-/// two Apple dialogs people bail at (Full Access, microphone) are explained on
-/// the screen before each one, so the warning is expected rather than alarming.
+/// First run: four screens, one each, from install to a working dictation. No API
+/// key step anymore — transcription runs on the device and cleanup goes through the
+/// backend, so there's nothing for the user to paste. The two Apple dialogs people
+/// bail at (Full Access, microphone) are explained on the screen before each one, so
+/// the warning is expected rather than alarming.
 ///
 /// Copy here is consent-surface and instructional, so it names the mechanism on
-/// purpose (VOICE.md § 2). Re-check the Full Access paragraph if the keyboard
-/// target ever gains a network call.
+/// purpose (VOICE.md § 2). Re-check the Full Access paragraph if the keyboard target
+/// ever makes its own network call.
 struct OnboardingView: View {
     let onFinish: () -> Void
 
     init(startStep: Int = 1, onFinish: @escaping () -> Void) {
         self.onFinish = onFinish
-        _step = State(initialValue: min(max(startStep, 1), 5))
+        _step = State(initialValue: min(max(startStep, 1), 4))
     }
 
     @State private var step: Int
-    private let total = 5
+    private let total = 4
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -43,10 +45,9 @@ struct OnboardingView: View {
             ScrollView {
                 Group {
                     switch step {
-                    case 1: keyStep
-                    case 2: keyboardStep
-                    case 3: fullAccessStep
-                    case 4: micStep
+                    case 1: keyboardStep
+                    case 2: fullAccessStep
+                    case 3: micStep
                     default: tryStep
                     }
                 }
@@ -55,83 +56,7 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Step 1: Groq key
-
-    @State private var key = ""
-    @State private var checking = false
-    @State private var keyMessage: String?
-    @State private var keyOK = false
-
-    private var keyStep: some View {
-        step(
-            title: "Dictator runs on your own Groq account",
-            body: "Groq turns your voice into text. A key is free to create, and Groq bills you for what you use. Half an hour a day is about a dollar a month, and nothing when you're not talking."
-        ) {
-            Link("Get a key at console.groq.com", destination: URL(string: "https://console.groq.com/keys")!)
-                .font(.callout)
-
-            SecureField("Paste your key", text: $key)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
-
-            HStack {
-                Button {
-                    validateKey()
-                } label: {
-                    if checking { ProgressView() } else { Text("Check and save") }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || checking)
-
-                if let keyMessage {
-                    Text(keyMessage)
-                        .font(.caption)
-                        .foregroundStyle(keyOK ? .green : .red)
-                }
-            }
-
-            nextRow(enabled: keyOK, laterAdvances: true)
-        }
-        .onAppear {
-            // Re-entering setup from the home-screen checklist landed on an empty
-            // field with Next hidden, as though no key had ever been saved — so
-            // the only way forward was "Do this later". Show what is stored.
-            guard key.isEmpty, let saved = SharedStore.groqAPIKey, !saved.isEmpty else { return }
-            key = saved
-            keyOK = true
-            keyMessage = "Key already saved"
-        }
-    }
-
-    private func validateKey() {
-        checking = true
-        keyMessage = nil
-        let candidate = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            do {
-                let ok = try await GroqTranscription.validateKey(candidate)
-                await MainActor.run {
-                    checking = false
-                    keyOK = ok
-                    if ok {
-                        SharedStore.groqAPIKey = candidate
-                        keyMessage = "Key works"
-                    } else {
-                        keyMessage = "Groq didn't accept that key"
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    checking = false
-                    keyOK = false
-                    keyMessage = "Couldn't reach Groq. Check your connection."
-                }
-            }
-        }
-    }
-
-    // MARK: - Step 2: add the keyboard
+    // MARK: - Step 1: add the keyboard
 
     private var keyboardStep: some View {
         step(
@@ -149,18 +74,18 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Step 3: Full Access explainer
+    // MARK: - Step 2: Full Access explainer
 
     private var fullAccessStep: some View {
         step(
             title: "About the warning you're about to see",
-            body: "Apple shows the same warning for every keyboard that talks to its app. In Dictator, Full Access lets the keyboard read the text this app wrote. The keyboard has no network code. This app sends your audio to Groq to be transcribed, and nothing else."
+            body: "Apple shows the same warning for every keyboard that can reach its app. In Dictator, Full Access lets the keyboard receive the text this app produced and reach the network. Your speech is transcribed on your iPhone; only the short cleanup step contacts our server. The keyboard never logs what you type."
         ) {
             nextRow(nextTitle: "Got it", enabled: true, laterAdvances: false)
         }
     }
 
-    // MARK: - Step 4: microphone
+    // MARK: - Step 3: microphone
 
     @State private var micAsked = false
     @State private var micGranted = false
@@ -179,7 +104,7 @@ struct OnboardingView: View {
                         // Only move on if it was actually granted. Walking the
                         // user to "Try it" after they tapped Don't Allow sets
                         // them up to watch a mic button do nothing.
-                        if granted { step = 5 }
+                        if granted { step = 4 }
                     }
                 }
             }
@@ -202,7 +127,7 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Step 5: try it
+    // MARK: - Step 4: try it
 
     @State private var tryText = ""
 
