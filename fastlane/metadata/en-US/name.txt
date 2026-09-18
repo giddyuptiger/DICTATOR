@@ -1,1 +1,1 @@
-DICTATOR: Speech To Text
+Dictator: Voice to Text
