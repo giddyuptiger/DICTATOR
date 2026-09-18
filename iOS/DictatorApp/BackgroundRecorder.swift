@@ -1378,7 +1378,23 @@ public final class BackgroundRecorder: ObservableObject {
         let cleaner = makeCleaner(key: key, dictionary: dictionary)
 
         do {
-            let raw = try await speech.transcribe(samples: samples)
+            let raw: String
+            do {
+                raw = try await speech.transcribe(samples: samples)
+            } catch {
+                log("transcribe failed via \(type(of: speech)): \(String(describing: error).prefix(140))")
+                // Weak-signal resilience. On a poor connection the cloud audio
+                // upload can stall and time out (a ~170 KB WAV over EDGE), while
+                // the tiny cleanup text still gets through. If that happens and the
+                // on-device model is already loaded, transcribe locally so the user
+                // still gets their words instead of a dead end.
+                if !(speech is LocalParakeet), modelStatus == .ready {
+                    log("cloud transcription failed; falling back to on-device")
+                    raw = try await localSpeech.transcribe(samples: samples)
+                } else {
+                    throw error
+                }
+            }
             let transcribeMS = Int(Date().timeIntervalSince(started) * 1000)
             guard !raw.isEmpty else {
                 lastSamples = []
@@ -1435,8 +1451,34 @@ public final class BackgroundRecorder: ObservableObject {
                 return ("Couldn't read Groq's reply. Tap to try again.", true)
             }
         }
-        // URLSession errors (offline, timeout, cancelled) are all retryable.
-        return ("Couldn't reach Groq. Tap to try again.", true)
+        // Backend proxy (the default cloud path): distinguish a server-side
+        // problem from a rate limit / busy so the pill tells the truth.
+        if let be = error as? BackendError {
+            switch be {
+            case .http(let status, _):
+                switch status {
+                case 429: return ("Busy right now. Tap to try again.", true)
+                case 503: return ("Servers are busy. Tap to try again.", true)
+                default:  return ("Server error \(status). Tap to try again.", true)
+                }
+            case .emptyAudio:  return ("Nothing heard", false)
+            case .unparseable: return ("Couldn't read the server's reply. Tap to try again.", true)
+            }
+        }
+        // URLSession errors. A timeout on a weak connection is the common one for
+        // cloud transcription (the audio upload stalls), so name it honestly and
+        // point at the on-device engine, which needs no upload.
+        if let url = error as? URLError {
+            switch url.code {
+            case .timedOut:
+                return ("Upload timed out — weak signal. Try On-device in Settings.", true)
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return ("No connection. Tap to try again.", true)
+            default:
+                return ("Network problem. Tap to try again.", true)
+            }
+        }
+        return ("Couldn't reach the server. Tap to try again.", true)
     }
 
     private func finish(text: String, ms: Int) {

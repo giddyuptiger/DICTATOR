@@ -660,7 +660,23 @@ final class KeyboardViewController: UIInputViewController {
             out = " " + out
         }
 
-        proxy.insertText(out)
+        // Multi-line transcripts (numbered lists, paragraphs) need care. A single
+        // insertText of a big blob containing "\n" leaves some hosts — WhatsApp's
+        // growing composer among them — stuck at one visible line: the text is
+        // there but the box never reflows to its new height. Inserting each line
+        // and each newline as its own call behaves like pressing Return, which the
+        // host does grow for; a final zero-offset position nudge asks it to
+        // recompute once more. Undo is unaffected: the concatenation equals `out`.
+        if out.contains("\n") {
+            let parts = out.components(separatedBy: "\n")
+            for (i, part) in parts.enumerated() {
+                if !part.isEmpty { proxy.insertText(part) }
+                if i < parts.count - 1 { proxy.insertText("\n") }
+            }
+            proxy.adjustTextPosition(byCharacterOffset: 0)
+        } else {
+            proxy.insertText(out)
+        }
         return out
     }
 

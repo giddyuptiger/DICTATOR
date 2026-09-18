@@ -382,6 +382,30 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.81 — cloud reliability on weak signal, honest errors, WhatsApp multi-line (2026-09-18)
+
+From on-device testing on a 2-bar "5G E" connection: cloud transcription hung ~30s then
+failed with "Couldn't reach Groq"; a dictated numbered list showed only its last line in
+WhatsApp.
+
+- **Cloud was upload-bound, not broken.** On a weak connection the ~170 KB WAV upload
+  stalls past the 30s request timeout, while the tiny cleanup text (~1 KB) still gets
+  through — which is exactly the log signature (cleanup applied, transcribe timed out).
+  Added weak-signal resilience: if a cloud transcription fails and the on-device model is
+  loaded, we transcribe locally so the user still gets their words instead of a dead end.
+- **Honest errors.** `classify()` now handles `BackendError` (429/503/5xx → "busy / server
+  error") and `URLError` (`.timedOut` → "Upload timed out — weak signal. Try On-device.")
+  instead of always saying "Couldn't reach Groq." The real error detail is logged to
+  Activity, so the next failure is diagnosable.
+- **WhatsApp multi-line.** A single `insertText` of a multi-line blob left WhatsApp's
+  growing composer stuck at one visible line. Now we insert each line and each newline as
+  its own call (like pressing Return, which hosts do grow for) and nudge a reflow with a
+  zero-offset position adjustment. Undo is unaffected.
+
+Note: making cloud *fast* on weak signal (not just resilient) needs audio compression
+(m4a/AAC ≈ 8× smaller upload) coordinated with a backend change — deliberately deferred to
+a device-tested pass rather than shipped blind into the one broken path.
+
 ### 0.1.80 — real app design: three tabs, a live dictation hero, not a settings dump (2026-09-17)
 
 The container app looked like a debug/settings page: one long scroll of ten setting
