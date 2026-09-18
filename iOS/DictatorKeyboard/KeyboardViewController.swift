@@ -36,6 +36,13 @@ final class KeyButton: UIButton {
 /// routed to the closest key instead of falling through. A point inside a real key
 /// still returns that key unchanged.
 final class KeyHitStack: UIStackView {
+    /// Marks the space bar so hitTest can lift its hit area upward a touch.
+    static let spaceTag = 9901
+    /// How far up the space bar's hit area reaches, in points. Covers the gap
+    /// above it plus a sliver of the b/n/m row, so a fast thumb aiming for space
+    /// doesn't catch those letters. Kept small so it barely steals from them.
+    private static let spaceLift: CGFloat = 13
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         // Only claim touches that land within our own bounds (the key area). A
         // point outside — the mic pill/toolbar above the keys, or the margin below
@@ -43,6 +50,17 @@ final class KeyHitStack: UIStackView {
         // snap below stole taps on the "Tap to talk" pill and typed y/u instead,
         // because UIKit calls hitTest here for sibling points too. (0.1.86 bug.)
         guard point(inside: point, with: event) else { return nil }
+
+        // Space-bar lift: give the space bar a small head start on the band just
+        // above it, so quick space taps that land low on b/n/m still register as
+        // space. Only extends UPWARD, only by spaceLift, so normal b/n/m taps are
+        // unaffected.
+        if let space = firstControl(in: self, tagged: Self.spaceTag) {
+            var f = space.convert(space.bounds, to: self)
+            f.origin.y -= Self.spaceLift
+            f.size.height += Self.spaceLift
+            if f.contains(point) { return space }
+        }
 
         let hit = super.hitTest(point, with: event)
         // A real, tappable key was hit — use it as-is.
@@ -67,6 +85,15 @@ final class KeyHitStack: UIStackView {
         }
         scan(self)
         return best ?? hit
+    }
+
+    /// Find the first descendant control carrying `tag` (the space bar).
+    private func firstControl(in v: UIView, tagged tag: Int) -> UIControl? {
+        for sub in v.subviews {
+            if let c = sub as? UIControl, c.tag == tag { return c }
+            if let found = firstControl(in: sub, tagged: tag) { return found }
+        }
+        return nil
     }
 
     /// Squared distance from a point to the nearest edge of a rect (0 if inside).
@@ -1071,6 +1098,9 @@ final class KeyboardViewController: UIInputViewController {
         let space = makeSpecial(image: nil, title: "space", action: nil)
         space.addTarget(self, action: #selector(spaceTapped), for: .touchDown)
         space.accessibilityLabel = "Space"
+        // Tag it so the hit surface can lift its hit area upward a little: a fast
+        // thumb reaching for space often lands on the b/n/m row just above it.
+        space.tag = KeyHitStack.spaceTag
         space.backgroundColor = palette.key
         space.setTitleColor(palette.keyText, for: .normal)
         let ret = makeSpecial(image: nil, title: returnKeyTitle(), action: #selector(returnTapped))

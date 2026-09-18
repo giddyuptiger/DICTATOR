@@ -382,6 +382,18 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.88 — space bar lift: fast space taps stop catching b/n/m (2026-09-18)
+
+Device feedback: typing is better, but a fast thumb reaching for space sometimes lands on the
+b/n/m row just above it. Gave the space bar a small upward "lift" in the hit surface: its hit
+area now reaches 13pt higher (the gap above it plus a sliver of the b/n/m row), so a low space
+tap still registers as space. Only extends upward and only 13pt, so normal b/n/m taps are
+unaffected. Space is found by tag in KeyHitStack.
+
+(Some character drops may remain; the deeper fixes — IPC off the touch thread, a local input
+tail, and a typing probe to measure drops — are still scoped in the vault spec for a later
+device-tested pass.)
+
 ### 0.1.87 — HOTFIX: 0.1.86 broke the mic pill (tapping it typed y/u) (2026-09-18)
 
 Regression from 0.1.86: tapping the "Tap to talk" pill typed letters (y/u) instead of
