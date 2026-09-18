@@ -382,6 +382,21 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.83 — stop "WhatsApp" becoming "what's up" (proper-noun restoration) (2026-09-18)
+
+Dictating "WhatsApp expands now" typed "What's Up expands now" — a homophone the speech
+model can't disambiguate on its own. Fixed at two layers, context-aware (never a blind
+swap that would wreck a real "what's up" greeting):
+
+- **Cleanup prompt** gained a PROPER NOUNS rule: restore well-known app/brand/product
+  names (WhatsApp, iPhone, iOS, iMessage, Instagram, …) when the context unmistakably
+  means the product, but leave a genuine greeting alone. This runs on BOTH engines, so it
+  covers on-device too (whose model takes no bias hint).
+- **Transcription bias**: a `BuiltinVocabulary` of the commonly-mangled names is now merged
+  into the cloud transcriber's vocabulary hint (with the user's own dictionary), nudging
+  the spelling right upstream. On-device Parakeet takes no bias, so there it relies on the
+  cleanup rule above.
+
 ### 0.1.82 — shave latency: warm the backend connection while you speak (2026-09-18)
 
 Every dictation pays for a cleanup round trip (and cloud transcription pays for its own),

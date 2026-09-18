@@ -1260,7 +1260,9 @@ public final class BackgroundRecorder: ObservableObject {
         let dictionary = PersonalDictionary.load()
         let key = SharedStore.groqAPIKey ?? ""
         let onDeviceReady = SharedStore.transcriptionEngine == .onDevice && modelStatus == .ready
-        let bias = dictionary.entries.map(\.canonical)
+        // User's own vocabulary first, then the common brand names dictation
+        // mangles (WhatsApp, iOS, …), so the cloud model spells them right.
+        let bias = dictionary.entries.map(\.canonical) + BuiltinVocabulary.terms
         let speech: SpeechProvider
         if onDeviceReady {
             speech = localSpeech
@@ -1366,7 +1368,9 @@ public final class BackgroundRecorder: ObservableObject {
         //  - BYOK -> Groq directly when the user supplied their own key;
         //  - otherwise the backend proxy (default), which also covers on-device
         //    while the model is still downloading, so the dictation still lands.
-        let bias = dictionary.entries.map(\.canonical)
+        // User's own vocabulary first, then the common brand names dictation
+        // mangles (WhatsApp, iOS, …), so the cloud model spells them right.
+        let bias = dictionary.entries.map(\.canonical) + BuiltinVocabulary.terms
         let speech: SpeechProvider
         if engine == .onDevice, modelStatus == .ready {
             speech = localSpeech

@@ -79,6 +79,15 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     If the speaker asks a question, write the question down.
     - Preserve the speaker's voice and word choice. You are a typist, not an editor.
 
+    PROPER NOUNS. Restore the correct spelling and casing of well-known app, brand, \
+    and product names when the surrounding words clearly mean the product — e.g. \
+    WhatsApp, iPhone, iPad, iOS, macOS, iMessage, FaceTime, AirPods, Instagram, \
+    TikTok, YouTube, Gmail, Google, Spotify, Slack, Zoom, PayPal, Venmo, Uber, \
+    Netflix. Example: "whats up expands the box now" -> "WhatsApp expands the box \
+    now" (the app). But NEVER rewrite a genuine greeting: "hey what's up" stays \
+    "Hey, what's up?". Only correct when the product meaning is unmistakable from \
+    the context.
+
     PARAGRAPHS. A long dictation is almost never one paragraph. If the transcript \
     runs to several sentences that move across more than one thought, break it into \
     paragraphs separated by a blank line — do not return a wall of text. Start a \

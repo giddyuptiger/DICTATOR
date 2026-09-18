@@ -13,6 +13,19 @@ import Foundation
 /// Synced between Mac and iPhone through the shared App Group container, and
 /// optionally through iCloud key-value store so a term you add on one shows up
 /// on the other.
+/// Well-known app/brand/product names that speech models routinely mangle into
+/// homophones ("WhatsApp" -> "what's up", "iOS" -> "I OS"). Passed as transcription
+/// bias so the cloud model is nudged toward the right spelling; the cleanup pass
+/// (see ToneProfile PROPER NOUNS) also restores them from context, which is what
+/// covers the on-device engine, whose model takes no bias hint.
+public enum BuiltinVocabulary {
+    public static let terms = [
+        "WhatsApp", "iPhone", "iPad", "iOS", "macOS", "iMessage", "FaceTime",
+        "AirPods", "Instagram", "TikTok", "YouTube", "Gmail", "Google", "Spotify",
+        "Slack", "Zoom", "PayPal", "Venmo", "Uber", "Netflix", "Dictator",
+    ]
+}
+
 public struct PersonalDictionary: Codable, Sendable {
 
     public struct Entry: Codable, Sendable, Hashable {
