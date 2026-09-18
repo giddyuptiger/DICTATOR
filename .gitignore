@@ -17,4 +17,9 @@ _to_delete/
 # Node deps (backend tooling)
 node_modules/
 .DS_Store
+
+# App Store Connect API credentials — NEVER commit these. They live only on
+# your Mac; fastlane reads them locally to authenticate to Apple.
 asc_api_key.json
+*.p8
+AuthKey_*.p8
