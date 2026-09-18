@@ -8,6 +8,9 @@
 //   GET  /healthz                                    -> { ok: true }
 //   POST /v1/cleanup     { text, system, model? }    -> { text }
 //   POST /v1/transcribe  multipart(file, model?, prompt?, language?) -> { text }
+//   POST /v1/dictate     multipart(file, system, model?, prompt?, language?, cleanup_model?)
+//                                                        -> { raw, text, cleaned }
+//                        (transcribe + cleanup in one round trip — the fast path)
 //
 // SECURITY POSTURE (v1):
 //   - The Groq key lives ONLY in a Worker secret (never in the app binary). This is
@@ -50,6 +53,7 @@ export default {
 
       if (url.pathname === "/v1/cleanup") return await handleCleanup(request, env, ctx);
       if (url.pathname === "/v1/transcribe") return await handleTranscribe(request, env, ctx);
+      if (url.pathname === "/v1/dictate") return await handleDictate(request, env, ctx);
       return json({ error: "not_found" }, 404);
     } catch (e) {
       return json({ error: "server_error", detail: String(e).slice(0, 200) }, 500);
@@ -132,6 +136,79 @@ async function handleTranscribe(request, env, ctx) {
   const data = await resp.json();
   ctx.waitUntil(bumpSpend(env));
   return json({ text: (data?.text ?? "").trim() });
+}
+
+// The premium fast path: transcribe AND clean up in ONE request, so the phone
+// makes a single round trip instead of two. Both Groq calls run server-side, where
+// the hop to Groq is cheap. Returns { raw, text, cleaned } — the app runs its own
+// safety guards on (raw, text), so a bad cleanup can never overwrite the words.
+async function handleDictate(request, env, ctx) {
+  const form = await request.formData().catch(() => null);
+  if (!form || !form.get("file")) return json({ error: "missing_file" }, 400);
+
+  // 1) Transcribe.
+  const tf = new FormData();
+  tf.set("file", form.get("file"), "audio.wav");
+  tf.set("model", form.get("model") || "whisper-large-v3-turbo");
+  tf.set("response_format", "json");
+  tf.set("temperature", "0");
+  if (form.get("language")) tf.set("language", form.get("language"));
+  if (form.get("prompt")) tf.set("prompt", form.get("prompt"));
+
+  const tr = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.GROQ_API_KEY}` },
+    body: tf,
+  });
+  if (!tr.ok) {
+    const detail = await tr.text();
+    return json({ error: "groq_error", status: tr.status, detail: detail.slice(0, 300) }, 502);
+  }
+  const traw = await tr.json();
+  const raw = (traw?.text ?? "").trim();
+  ctx.waitUntil(bumpSpend(env));
+  if (!raw) return json({ raw: "", text: "", cleaned: false });
+
+  // 2) Clean up (best effort). If every model fails, return the raw transcript so
+  // the user still gets their words; the app decides what to do with cleaned=false.
+  const system = typeof form.get("system") === "string" ? form.get("system") : "";
+  if (!system) return json({ raw, text: raw, cleaned: false });
+
+  const requested = form.get("cleanup_model");
+  const models = requested ? [requested, ...CLEANUP_MODELS] : CLEANUP_MODELS;
+  for (const model of models) {
+    const resp = await fetch(`${GROQ_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        max_tokens: 1500,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: raw },
+        ],
+      }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const text = data?.choices?.[0]?.message?.content?.trim() ?? "";
+      if (text) {
+        ctx.waitUntil(bumpSpend(env));
+        return json({ raw, text, cleaned: true });
+      }
+      continue; // empty completion -> try the next model
+    }
+    const errText = await resp.text();
+    if (resp.status >= 400 && resp.status < 500 && errText.includes("model")) {
+      continue; // decommissioned/no access -> next model
+    }
+    break; // a real error -> stop trying, fall back to raw below
+  }
+  return json({ raw, text: raw, cleaned: false });
 }
 
 // ---- Rate limiting + spend cap (KV, best-effort) ----------------------------

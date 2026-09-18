@@ -1350,6 +1350,43 @@ public final class BackgroundRecorder: ObservableObject {
         return hallucinationPhrases.contains(norm)
     }
 
+    /// The one-round-trip cloud path. Returns true if it produced a final outcome
+    /// (typed text, or a definitive "nothing heard"), false only if the network
+    /// call failed — in which case the caller falls back to the two-call path.
+    /// The same safety guards run locally via `Cleaner.reconcile`, so a bad
+    /// server-side cleanup can never overwrite the user's words.
+    private func tryCombinedDictate(samples: [Float], bias: [String],
+                                    dictionary: PersonalDictionary, started: Date) async -> Bool {
+        let system = ToneProfile.neutral.systemPrompt(dictionaryHint: dictionary.promptHint())
+        do {
+            let result = try await BackendDictate(biasTerms: bias).dictate(samples: samples, system: system)
+            let transcribeMS = Int(Date().timeIntervalSince(started) * 1000)
+            let raw = result.raw
+            guard !raw.isEmpty else {
+                lastSamples = []
+                finish(error: "Nothing heard", retryable: false)
+                return true
+            }
+            if Self.isLowEnergy(samples), Self.isHallucinationPhrase(raw) {
+                lastSamples = []
+                log("dropped silence hallucination: \(raw.prefix(30))")
+                finish(error: "Didn't catch that", retryable: false)
+                return true
+            }
+            let cleaner = makeCleaner(key: "", dictionary: dictionary)
+            let out = cleaner.reconcile(rawTrimmed: raw, cleanedTrimmed: result.cleaned)
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            log("mode: \(DictationMode.current.displayName)")
+            log(out.usedProvider ? "cleanup: applied (1-trip)" : "cleanup: NOT applied (\(out.note ?? "unknown"))")
+            log(String(format: "timing: dictate %dms · total %dms", transcribeMS, ms))
+            finish(text: out.text, ms: ms)
+            return true
+        } catch {
+            log("combined dictate failed: \(String(describing: error).prefix(140)); falling back to 2-trip")
+            return false
+        }
+    }
+
     private func transcribe(_ samples: [Float]) async {
         // Hold onto the audio until we know the attempt succeeded, so a network
         // failure offers a retry instead of losing the words.
@@ -1371,6 +1408,20 @@ public final class BackgroundRecorder: ObservableObject {
         // User's own vocabulary first, then the common brand names dictation
         // mangles (WhatsApp, iOS, …), so the cloud model spells them right.
         let bias = dictionary.entries.map(\.canonical) + BuiltinVocabulary.terms
+
+        // Premium fast path: when we're going to the backend for transcription
+        // anyway (cloud engine, or on-device while the model is still downloading)
+        // and the user has no BYO key, do transcription + cleanup in ONE round trip
+        // instead of two. If that combined call fails at the network level, fall
+        // through to the proven two-call path below, so this is pure upside.
+        let usesBackend = key.isEmpty && !(engine == .onDevice && modelStatus == .ready)
+        if usesBackend {
+            if await tryCombinedDictate(samples: samples, bias: bias,
+                                        dictionary: dictionary, started: started) {
+                return
+            }
+        }
+
         let speech: SpeechProvider
         if engine == .onDevice, modelStatus == .ready {
             speech = localSpeech

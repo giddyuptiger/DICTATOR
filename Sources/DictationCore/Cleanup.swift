@@ -60,70 +60,7 @@ public struct Cleaner: Sendable {
         do {
             let cleaned = try await provider.clean(trimmed, system: system)
             let cleanedTrimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            // The safety net. A cleanup model can return an empty string, or treat
-            // the transcript as a request and refuse it ("I'm sorry, but I can't
-            // help with that") — both seen on device, and both used to be typed
-            // verbatim, destroying the user's words. Never let the model's failure
-            // replace what the user actually said: fall back to the raw transcript
-            // (dictionary-corrected). This matters most on longer dictations, which
-            // are exactly where refusals and empties show up.
-            if cleanedTrimmed.isEmpty {
-                let text = dictionary.apply(to: trimmed)
-                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup returned empty; used raw transcript")
-            }
-            if Self.looksLikeRefusal(cleanedTrimmed), !Self.looksLikeRefusal(trimmed) {
-                let text = dictionary.apply(to: trimmed)
-                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup refused; used raw transcript")
-            }
-
-            // Content-fidelity guard. Cleanup must reformat, not summarize. A small
-            // model sometimes returns a tidy paragraph that has quietly DROPPED what
-            // the user said (seen on device: rambling/repeated speech came back
-            // shorter and gutted). Removing "um"s trims a little; losing half the
-            // words means content was cut. If the cleaned text is under half the
-            // word count of a non-trivial transcript, keep the user's actual words.
-            let rawWords = trimmed.split(whereSeparator: \.isWhitespace).count
-            let cleanWords = cleanedTrimmed.split(whereSeparator: \.isWhitespace).count
-            if rawWords >= 12, cleanWords * 2 < rawWords {
-                let text = dictionary.apply(to: trimmed)
-                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup dropped too much (\(rawWords)→\(cleanWords) words); used raw transcript")
-            }
-
-            // Ramble guard (the mirror of the above). A model that ANSWERS the
-            // transcript instead of reformatting it balloons the output (essays,
-            // "Thank you for choosing me…"). Reformatting never doubles length, so a
-            // big expansion means it went off the rails: keep the user's words.
-            if rawWords >= 3, cleanWords > rawWords * 2 + 12 {
-                let text = dictionary.apply(to: trimmed)
-                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup expanded too much (\(rawWords)→\(cleanWords) words); used raw transcript")
-            }
-
-            // Answer guard (catches the case the length guards miss). A cleanup that
-            // REPLIES to the transcript instead of reformatting it won't contain the
-            // user's own words — reformatting keeps almost all of them (it only fixes
-            // punctuation and drops filler). If fewer than 60% of the raw words
-            // survive into the output, the model answered/questioned back rather than
-            // reformatted; keep the user's actual words.
-            func wordSet(_ s: String) -> Set<String> {
-                Set(s.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
-            }
-            let rawSet = wordSet(trimmed)
-            if rawSet.count >= 5 {
-                let kept = Double(rawSet.intersection(wordSet(cleanedTrimmed)).count) / Double(rawSet.count)
-                if kept < 0.6 {
-                    let text = dictionary.apply(to: trimmed)
-                    return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: String(format: "cleanup diverged (kept %.0f%% of words); used raw transcript", kept * 100))
-                }
-            }
-
-            // Dictionary runs after the model, so it wins any disagreement.
-            // Use the TRIMMED text: models routinely return a trailing newline or
-            // a leading space, and inserting that verbatim drops the caret onto a
-            // new line in the middle of someone's message. The trim is the whole
-            // reason cleanedTrimmed exists; using `cleaned` here threw it away.
-            let final = dictionary.apply(to: cleanedTrimmed)
-            return CleanupResult(text: final, usedProvider: true, latency: Date().timeIntervalSince(start))
+            return reconcile(rawTrimmed: trimmed, cleanedTrimmed: cleanedTrimmed, start: start)
         } catch {
             // Never lose the user's words to a network failure. Degrade to raw,
             // but record why: this is what makes "my mode/emoji did nothing"
@@ -132,6 +69,65 @@ public struct Cleaner: Sendable {
             let reason = String(describing: error).prefix(160)
             return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup skipped: \(reason)")
         }
+    }
+
+    /// Apply the cleanup safety guards + dictionary pass to a raw transcript and an
+    /// already-produced cleaned string, with NO network call. Shared by process()
+    /// and by the combined backend path (`/v1/dictate`), which returns the raw
+    /// transcript and the cleaned text together in one round trip. Every guard
+    /// lives here: fall back to the raw transcript whenever the cleaned text looks
+    /// empty, refused, gutted, ballooned, or diverged from the words actually said.
+    /// Both arguments must already be whitespace-trimmed; `raw` must be non-empty.
+    public func reconcile(rawTrimmed trimmed: String, cleanedTrimmed: String, start: Date = Date()) -> CleanupResult {
+        // A cleanup model can return an empty string, or treat the transcript as a
+        // request and refuse it ("I'm sorry, but I can't help with that"). Never let
+        // that replace what the user actually said: fall back to the raw transcript
+        // (dictionary-corrected).
+        if cleanedTrimmed.isEmpty {
+            let text = dictionary.apply(to: trimmed)
+            return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup returned empty; used raw transcript")
+        }
+        if Self.looksLikeRefusal(cleanedTrimmed), !Self.looksLikeRefusal(trimmed) {
+            let text = dictionary.apply(to: trimmed)
+            return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup refused; used raw transcript")
+        }
+
+        // Content-fidelity guard. Cleanup must reformat, not summarize. If the
+        // cleaned text is under half the word count of a non-trivial transcript,
+        // content was cut: keep the user's actual words.
+        let rawWords = trimmed.split(whereSeparator: \.isWhitespace).count
+        let cleanWords = cleanedTrimmed.split(whereSeparator: \.isWhitespace).count
+        if rawWords >= 12, cleanWords * 2 < rawWords {
+            let text = dictionary.apply(to: trimmed)
+            return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup dropped too much (\(rawWords)→\(cleanWords) words); used raw transcript")
+        }
+
+        // Ramble guard. A model that ANSWERS the transcript balloons the output.
+        // Reformatting never doubles length, so a big expansion means it went off
+        // the rails: keep the user's words.
+        if rawWords >= 3, cleanWords > rawWords * 2 + 12 {
+            let text = dictionary.apply(to: trimmed)
+            return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup expanded too much (\(rawWords)→\(cleanWords) words); used raw transcript")
+        }
+
+        // Answer guard. A cleanup that REPLIES to the transcript won't contain the
+        // user's own words. If fewer than 60% of the raw words survive, the model
+        // answered rather than reformatted: keep the user's actual words.
+        func wordSet(_ s: String) -> Set<String> {
+            Set(s.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
+        }
+        let rawSet = wordSet(trimmed)
+        if rawSet.count >= 5 {
+            let kept = Double(rawSet.intersection(wordSet(cleanedTrimmed)).count) / Double(rawSet.count)
+            if kept < 0.6 {
+                let text = dictionary.apply(to: trimmed)
+                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: String(format: "cleanup diverged (kept %.0f%% of words); used raw transcript", kept * 100))
+            }
+        }
+
+        // Dictionary runs after the model, so it wins any disagreement.
+        let final = dictionary.apply(to: cleanedTrimmed)
+        return CleanupResult(text: final, usedProvider: true, latency: Date().timeIntervalSince(start))
     }
 
     /// Whether a cleanup result reads as the model refusing or apologising rather

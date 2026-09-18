@@ -93,6 +93,83 @@ public struct BackendTranscription: SpeechProvider {
     }
 }
 
+/// The combined result of one round trip to `/v1/dictate`: the raw transcript and
+/// the server-cleaned text. The app still runs its own safety guards on the pair
+/// (see `Cleaner.reconcile`), so a bad server-side cleanup can never overwrite the
+/// user's words.
+public struct DictateResult: Sendable {
+    public let raw: String
+    public let cleaned: String
+    public let didClean: Bool
+}
+
+/// Cloud transcription + cleanup in a SINGLE round trip (the premium fast path).
+/// Instead of the phone making two trips — upload audio, get transcript, then send
+/// text, get cleaned — the backend does both Groq calls server-side (where the hop
+/// to Groq is cheap) and returns both strings at once. On mobile that removes a
+/// whole request/response cycle from the critical path.
+public struct BackendDictate {
+    private let biasTerms: [String]
+    private let session: URLSession
+    public init(biasTerms: [String] = []) {
+        self.biasTerms = biasTerms
+        self.session = GroqHTTP.shared
+    }
+
+    public func dictate(samples: [Float], system: String) async throws -> DictateResult {
+        let trimmed = AudioUtil.trimSilence(samples)
+        guard trimmed.count > 1_600 else { throw BackendError.emptyAudio }
+
+        let wav = WAVEncoder.encode(samples: trimmed)
+        let boundary = "Boundary-\(UUID().uuidString)"
+
+        var request = URLRequest(url: URL(string: "\(Backend.baseURL)/v1/dictate")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue(Backend.deviceID, forHTTPHeaderField: "X-Device-Id")
+
+        let duration = Double(trimmed.count) / 16_000
+        request.timeoutInterval = min(150, max(30, 20 + duration * 0.4))
+
+        var body = Data()
+        func field(_ name: String, _ value: String) {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(wav)
+        body.append("\r\n".data(using: .utf8)!)
+        field("model", "whisper-large-v3-turbo")
+        field("language", "en")
+        field("system", system)
+        if !biasTerms.isEmpty {
+            field("prompt", "Vocabulary: \(biasTerms.prefix(80).joined(separator: ", "))")
+        }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw BackendError.unparseable }
+        guard (200..<300).contains(http.statusCode) else {
+            throw BackendError.http(status: http.statusCode, body: String(data: data, encoding: .utf8) ?? "")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw BackendError.unparseable
+        }
+        let raw = (json["raw"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = (json["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let didClean = (json["cleaned"] as? Bool) ?? false
+        // `text` is the cleaned string; `raw` is the transcript. If the server
+        // couldn't clean, it returns text == raw with cleaned=false.
+        return DictateResult(raw: raw.isEmpty ? text : raw,
+                             cleaned: text.isEmpty ? raw : text,
+                             didClean: didClean)
+    }
+}
+
 /// Cleanup via the backend proxy (no key in the app).
 public struct BackendCleanup: CleanupProvider {
     private let session: URLSession

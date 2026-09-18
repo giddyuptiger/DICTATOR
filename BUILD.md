@@ -382,6 +382,26 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.84 — premium cloud goes lightning: one round trip instead of two (2026-09-18)
+
+The cloud tier is the paid, has-to-be-fast path. It was making TWO trips from the phone —
+upload audio → get transcript, then send text → get cleaned — and on mobile the round trips
+are the cost. Collapsed them into one.
+
+- **Backend:** new `POST /v1/dictate` runs both Groq calls server-side (transcribe, then
+  cleanup) and returns `{ raw, text, cleaned }`. The Groq hops are cheap from the edge; the
+  expensive phone↔server leg now happens once. `/v1/transcribe` and `/v1/cleanup` stay for
+  BYOK and fallback. **Redeploy required:** `cd backend && npx wrangler deploy`.
+- **App:** when we'd hit the backend anyway (cloud engine, or on-device still downloading)
+  and there's no BYO key, it calls `BackendDictate` (one trip). The cleanup safety guards
+  were extracted into `Cleaner.reconcile(raw:cleaned:)` and run locally on the returned
+  pair, so a bad server-side cleanup still falls back to the raw words — same protection as
+  before, no extra network.
+- **Safe to ship ahead of the deploy:** if `/v1/dictate` 404s (old Worker) or fails, the
+  app transparently falls back to the proven two-call path. Pure upside once deployed.
+
+Next lever for true ~1s: compress the upload (m4a/AAC), a device-tested pass.
+
 ### 0.1.83 — stop "WhatsApp" becoming "what's up" (proper-noun restoration) (2026-09-18)
 
 Dictating "WhatsApp expands now" typed "What's Up expands now" — a homophone the speech
