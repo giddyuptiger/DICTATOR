@@ -60,6 +60,9 @@ targets:
         # Sandbox off: a CGEventTap plus the Accessibility API is painful to
         # sandbox and this is not going to the App Store.
         ENABLE_HARDENED_RUNTIME: YES
+        # App icon lives in macOS/Assets.xcassets (picked up from the macOS source
+        # folder); this names the icon set inside it.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
   # ------------------------------------------------------------------ iOS ----
   DictatorIOS:
