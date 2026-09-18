@@ -21,6 +21,56 @@ final class KeyButton: UIButton {
     }
 }
 
+/// The vertical stack that holds every key row. Its one job beyond layout is to
+/// make sure NO tap is ever lost in the gaps.
+///
+/// Keys are UIButtons with 6pt gaps between them, 11pt between rows (the band above
+/// the space bar is the worst offender), and small side margins. A touch that lands
+/// in one of those gaps normally hits the stack view — not a button — and iOS
+/// silently drops it, which is the "misses ~1 in 12 letters" bug. Every serious
+/// third-party keyboard hits this and fixes it the same way: one surface owns the
+/// touches and snaps each one to the NEAREST key.
+///
+/// Here we do the low-risk version of that: keep the existing buttons and their
+/// (already touch-down) commit path, but override hitTest so a tap in a gap is
+/// routed to the closest key instead of falling through. A point inside a real key
+/// still returns that key unchanged.
+final class KeyHitStack: UIStackView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        // A real, tappable key was hit — use it as-is.
+        if let hit, hit !== self, hit.isUserInteractionEnabled, hit is UIControl {
+            return hit
+        }
+        // Otherwise the touch landed in a gap or margin. Find the nearest key so
+        // the tap is never lost.
+        var best: UIControl?
+        var bestDistance = CGFloat.greatestFiniteMagnitude
+        func scan(_ v: UIView) {
+            for sub in v.subviews {
+                if let control = sub as? UIControl,
+                   control.isUserInteractionEnabled, !control.isHidden, control.alpha > 0.01 {
+                    let frame = control.convert(control.bounds, to: self)
+                    let d = Self.squaredDistance(from: point, to: frame)
+                    if d < bestDistance { bestDistance = d; best = control }
+                } else {
+                    scan(sub)   // recurse into row stacks / containers, not into keys
+                }
+            }
+        }
+        scan(self)
+        return best ?? hit
+    }
+
+    /// Squared distance from a point to the nearest edge of a rect (0 if inside).
+    /// Squared is enough for a min-comparison and avoids a sqrt per key.
+    private static func squaredDistance(from p: CGPoint, to r: CGRect) -> CGFloat {
+        let dx = max(r.minX - p.x, 0, p.x - r.maxX)
+        let dy = max(r.minY - p.y, 0, p.y - r.maxY)
+        return dx * dx + dy * dy
+    }
+}
+
 /// The Dictator keyboard.
 ///
 /// This extension NEVER touches the microphone. It cannot: Apple has forbidden
@@ -177,6 +227,19 @@ final class KeyboardViewController: UIInputViewController {
         // Colours are dynamic and resolve themselves; a re-apply here keeps the
         // key glyphs crisp if the trait only finished resolving on screen.
         applyTheme()
+        // Kill the edge-key input delay. iOS's own screen-edge swipe recognizers
+        // live on the keyboard's window and default to delaysTouchesBegan = true,
+        // which holds back the first touch on keys near the edges (q, a, p, l,
+        // space) just long enough to drop it during fast typing. Clearing it is a
+        // well-worn fix. Re-run every appear because the window can change; use the
+        // safe optional form (a force-unwrap here is a known crash in other kbds).
+        view.window?.gestureRecognizers?.forEach { $0.delaysTouchesBegan = false }
+    }
+
+    /// Ask the system not to defer our edge touches for its own gestures, so the
+    /// edge keys respond as fast as the centre keys.
+    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
+        [.left, .right, .bottom]
     }
 
     override func traitCollectionDidChange(_ previous: UITraitCollection?) {
@@ -909,7 +972,7 @@ final class KeyboardViewController: UIInputViewController {
     private var deleteTicks = 0
     private var letterKeys: [UIButton] = []
 
-    private let rowsStack = UIStackView()
+    private let rowsStack = KeyHitStack()
 
     private func rows(for plane: Plane) -> [[String]] {
         switch plane {

@@ -382,6 +382,27 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.86 — keyboard stops dropping keys: no dead zones, no edge delay (2026-09-18)
+
+Reported: the keyboard misses ~1 in 12 letters and lags; Wispr Flow doesn't. A dedicated
+research pass (spec in the Maestro vault, Projects/Dictator/KEYBOARD-TYPING-SPEC.md) pinned
+the top two causes. Implemented both, the low-risk way:
+
+- **Dead zones (the main leak).** Keys are UIButtons with 6pt gaps between them and an 11pt
+  band above the space bar; a tap landing in a gap hit the stack view, not a key, and iOS
+  dropped it. `rowsStack` is now a `KeyHitStack` whose `hitTest` snaps any gap/margin tap to
+  the NEAREST key. A tap inside a real key is unchanged. Keeps the existing touch-down commit
+  path — no rewrite of the typing engine — so it's a contained fix.
+- **Edge-key delay.** The window's system-gesture recognizers defaulted to
+  `delaysTouchesBegan = true`, holding back the first touch on edge keys (q, a, p, l, space)
+  just long enough to drop it. Cleared on every appear (safe optional form), plus
+  `preferredScreenEdgesDeferringSystemGestures = [.left,.right,.bottom]`.
+
+Deliberately deferred to a device-tested pass (from the same spec): F3 (move the per-second
+App Group read + logs off the touch thread), F4 (local input-tail for capitalisation), F6
+(bring back key-preview/click/haptic feedback cheaply), and a typing probe to measure
+drops. F1+F2 target the reported symptom directly; ship and measure before the deeper work.
+
 ### 0.1.85 — clipboard fallback when a host ignores insertText (Google Calendar) (2026-09-18)
 
 Reported: dictating into Google Calendar's event/task title produced a transcript (visible
