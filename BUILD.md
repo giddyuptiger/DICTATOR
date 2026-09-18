@@ -382,6 +382,21 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.87 — HOTFIX: 0.1.86 broke the mic pill (tapping it typed y/u) (2026-09-18)
+
+Regression from 0.1.86: tapping the "Tap to talk" pill typed letters (y/u) instead of
+starting dictation — the keyboard's whole point, broken.
+
+Cause: `KeyHitStack.hitTest` returned the nearest key for ANY point it was asked about,
+ignoring its own bounds. The pill sits in a sibling bar ABOVE the key rows, but rowsStack is
+higher in z-order, so UIKit asks `rowsStack.hitTest` for the pill's point first; with the
+point outside its bounds the snap logic still returned the nearest top-row key (y/u) and ate
+the tap.
+
+Fix: one line — `guard point(inside:with:) else { return nil }` at the top of hitTest, so
+rowsStack only claims touches inside the key area and everything else (the pill, the margins)
+falls through to its real view. The dead-zone snap still works for gaps between keys/rows.
+
 ### 0.1.86 — keyboard stops dropping keys: no dead zones, no edge delay (2026-09-18)
 
 Reported: the keyboard misses ~1 in 12 letters and lags; Wispr Flow doesn't. A dedicated

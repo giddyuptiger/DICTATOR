@@ -37,6 +37,13 @@ final class KeyButton: UIButton {
 /// still returns that key unchanged.
 final class KeyHitStack: UIStackView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // Only claim touches that land within our own bounds (the key area). A
+        // point outside — the mic pill/toolbar above the keys, or the margin below
+        // — MUST fall through to its real view. Without this guard the nearest-key
+        // snap below stole taps on the "Tap to talk" pill and typed y/u instead,
+        // because UIKit calls hitTest here for sibling points too. (0.1.86 bug.)
+        guard point(inside: point, with: event) else { return nil }
+
         let hit = super.hitTest(point, with: event)
         // A real, tappable key was hit — use it as-is.
         if let hit, hit !== self, hit.isUserInteractionEnabled, hit is UIControl {
