@@ -46,11 +46,20 @@ struct MenuBarLabel: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        Image(systemName: app.menuIcon)
-            .onChange(of: app.settingsRequest) { _, _ in
-                NSApp.activate(ignoringOtherApps: true)
-                openSettings()
+        Group {
+            if app.menuShowsLogo {
+                // The brand mark (soundwave + mustache), as a template image so it
+                // tints to the menu bar the way an SF Symbol would.
+                Image("MenuBarIcon").renderingMode(.template)
+            } else {
+                // Recording or not-ready: keep the symbol, which carries that state.
+                Image(systemName: app.menuIcon)
             }
+        }
+        .onChange(of: app.settingsRequest) { _, _ in
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
+        }
     }
 }
 
@@ -98,10 +107,15 @@ struct MenuContent: View {
         }
         Button("Vocabulary…") { openSettings(.vocabulary) }
         if app.needsAccessibility {
-            Text("Waiting for Accessibility permission").font(.caption).foregroundStyle(.orange)
+            Text("Allow Dictator in Accessibility, then click Restart Dictator below.")
+                .font(.caption).foregroundStyle(.orange)
         }
         Divider()
         Button("Settings…") { openSettings(.setup) }
+        // macOS only hands an Accessibility grant to a freshly launched process, so
+        // a one-click restart is the reliable way to make the hotkey start working
+        // right after the user allows it.
+        Button("Restart Dictator") { app.restart() }
         Button("Quit Dictator") { NSApplication.shared.terminate(nil) }
     }
 }
@@ -134,6 +148,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         if isRecording { return "mic.fill" }
         if status.hasPrefix("Ready") { return "mic" }
         return "mic.slash"
+    }
+
+    /// Show the brand logo in the menu bar when idle and ready; fall back to the
+    /// state-carrying symbols while recording or when not set up.
+    var menuShowsLogo: Bool { !isRecording && status.hasPrefix("Ready") }
+
+    /// Relaunch the app. macOS activates an Accessibility grant only for a freshly
+    /// launched process, so after the user allows Dictator the reliable path is a
+    /// restart, not waiting for the running process to notice. One click beats
+    /// "quit and reopen."
+    func restart() {
+        let url = Bundle.main.bundleURL
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in
+            Task { @MainActor in NSApp.terminate(nil) }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

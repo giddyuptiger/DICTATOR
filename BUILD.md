@@ -382,6 +382,16 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.89 — Mac: brand logo in the menu bar + one-click Restart (2026-09-18)
+
+- **Menu bar icon** is now the soundwave + mustache logo (a template image, so it tints to
+  light/dark menu bars) when idle/ready. Recording still shows `mic.fill` and a not-ready
+  state still shows `mic.slash`, so the icon keeps carrying state.
+- **Restart Dictator** menu item. macOS only activates an Accessibility grant for a freshly
+  launched process, which is why a first install "doesn't work until you fiddle": the running
+  app can't see the grant it was just given. Restart relaunches cleanly in one click, and the
+  waiting-for-Accessibility hint now points at it.
+
 ### 0.1.88 — space bar lift: fast space taps stop catching b/n/m (2026-09-18)
 
 Device feedback: typing is better, but a fast thumb reaching for space sometimes lands on the
