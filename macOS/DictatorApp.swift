@@ -93,16 +93,18 @@ struct MenuContent: View {
         Divider()
         Menu("Mode") {
             ForEach(DictationMode.allCases, id: \.self) { m in
-                Button {
-                    app.mode = m
-                    DictationMode.current = m
-                } label: {
-                    if app.mode == m {
-                        Label(m.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(m.displayName)
+                // A Toggle in a macOS menu renders as a native checkmark item, which
+                // shows reliably across macOS versions — unlike a Button whose
+                // systemImage the menu may not draw (why his Mac had no checks).
+                Toggle(m.displayName, isOn: Binding(
+                    get: { app.mode == m },
+                    set: { on in
+                        if on {
+                            app.mode = m
+                            DictationMode.current = m
+                        }
                     }
-                }
+                ))
             }
         }
         Button("Vocabulary…") { openSettings(.vocabulary) }

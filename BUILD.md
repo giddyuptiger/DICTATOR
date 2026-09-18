@@ -382,6 +382,14 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.90 — Mac Mode menu shows the selected register reliably (2026-09-18)
+
+The selected mode's checkmark was drawn as a Button systemImage, which SwiftUI menus don't
+render consistently across macOS versions — so on some Macs the Mode submenu showed no check
+at all. Switched to a native menu Toggle per mode, which macOS always draws with a real
+checkmark. (The submenu opening on the left vs right is just automatic edge placement, not a
+bug.)
+
 ### 0.1.89 — Mac: brand logo in the menu bar + one-click Restart (2026-09-18)
 
 - **Menu bar icon** is now the soundwave + mustache logo (a template image, so it tints to
