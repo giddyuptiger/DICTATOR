@@ -17,6 +17,23 @@ public enum Backend {
         SharedStore.deviceID = id
         return id
     }
+
+    /// Open (and pool) a TLS connection to the backend ahead of time, so the
+    /// transcription / cleanup request that follows reuses a warm connection
+    /// instead of paying for a fresh TLS handshake on the critical path. Called
+    /// when a capture starts: the user is still speaking, so this happens in the
+    /// dead time before there is anything to send. Fire-and-forget — the result
+    /// is ignored, and a failure here never affects the dictation.
+    ///
+    /// GroqHTTP.shared is the same URLSession used for the real requests, and
+    /// URLSession keeps HTTP connections alive for reuse, so warming /healthz
+    /// warms the exact connection the POST will ride on.
+    public static func warmConnection() {
+        guard let url = URL(string: "\(baseURL)/healthz") else { return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 5
+        Task.detached { _ = try? await GroqHTTP.shared.data(for: req) }
+    }
 }
 
 /// Cloud transcription via the backend proxy (no key in the app).

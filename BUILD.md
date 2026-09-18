@@ -382,6 +382,21 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.82 — shave latency: warm the backend connection while you speak (2026-09-18)
+
+Every dictation pays for a cleanup round trip (and cloud transcription pays for its own),
+and with an idle URLSession the first request each time eats a fresh TLS handshake on the
+critical path. Groq's own inference is fast; the ~1.4s cleanup was mostly network.
+
+- `Backend.warmConnection()` fires a cheap `GET /healthz` on the shared URLSession at the
+  moment a capture starts — while the user is still talking, i.e. dead time — so the POST
+  that follows reuses a live, pooled connection instead of handshaking. Fire-and-forget;
+  a failure never touches the dictation. Should trim a few hundred ms off the typical
+  dictation, more when the connection had gone cold.
+
+Still deferred (the bigger cloud-speed lever): audio compression for the upload, done as a
+coordinated, device-tested app+backend pass.
+
 ### 0.1.81 — cloud reliability on weak signal, honest errors, WhatsApp multi-line (2026-09-18)
 
 From on-device testing on a 2-bar "5G E" connection: cloud transcription hung ~30s then

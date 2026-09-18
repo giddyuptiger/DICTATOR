@@ -1102,6 +1102,10 @@ public final class BackgroundRecorder: ObservableObject {
         // works from the background: nothing is being started here.
         state = .capturing
         bumpIdleTimer()          // activity: push the idle auto-off back out
+        // Warm the backend TLS connection now, while the user is still speaking,
+        // so the cleanup (and cloud transcription) round trip that follows reuses
+        // a live connection instead of paying for a handshake on the critical path.
+        Backend.warmConnection()
         audio.begin()
         captureStartedAt = Date()
         startLevelTimer()
