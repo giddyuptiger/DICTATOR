@@ -382,6 +382,24 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.85 — clipboard fallback when a host ignores insertText (Google Calendar) (2026-09-18)
+
+Reported: dictating into Google Calendar's event/task title produced a transcript (visible
+in Activity) but nothing landed in the field. Some hosts — Google's apps notably — silently
+ignore a keyboard extension's `insertText`.
+
+- `consumeResult` now detects the common failure: the field was empty and still reports no
+  text right after we inserted. In that case it copies the transcript to the clipboard and
+  flashes "Couldn't type here — copied. Tap the field and paste," so the words are never
+  lost. Scoped to a field that was empty beforehand, so ordinary typing into existing text
+  can't trip it, and no undo state is left dangling.
+- Best-effort: can't verify Google Calendar's field from here. If a host both accepts the
+  text and lies about `hasText`, the worst case is a spurious "copied" note, never a lost or
+  duplicated dictation.
+
+Also confirmed from device logs: 0.1.84's timings are ~1.1–1.9s total (transcribe ~130ms,
+cleanup ~1s), down from ~3s.
+
 ### 0.1.84 — premium cloud goes lightning: one round trip instead of two (2026-09-18)
 
 The cloud tier is the paid, has-to-be-fast path. It was making TWO trips from the phone —

@@ -626,7 +626,28 @@ final class KeyboardViewController: UIInputViewController {
             mode = .ready
             return
         }
-        lastInserted = insert(text)
+
+        // Some hosts silently ignore a keyboard extension's insertText — Google
+        // Calendar's event/task title field is one: the transcript is produced but
+        // nothing lands. Detect the common case (an empty field that still reports
+        // no text right after we inserted) and fall back to the clipboard, so the
+        // words are never lost — the user can paste them. Scoped to a field that was
+        // empty beforehand, so normal typing into existing text never trips it.
+        let hadText = textDocumentProxy.hasText
+        let inserted = insert(text)
+        if !hadText, !textDocumentProxy.hasText {
+            UIPasteboard.general.string = inserted.trimmingCharacters(in: .whitespacesAndNewlines)
+            lastInserted = nil               // nothing actually inserted, so nothing to undo
+            lastUndone = nil
+            undoButton.isHidden = true
+            redoButton.isHidden = true
+            mode = .ready
+            render()
+            flash("Couldn't type here — copied. Tap the field and paste.")
+            return
+        }
+
+        lastInserted = inserted
         lastUndone = nil                 // a fresh dictation invalidates redo
         undoButton.isHidden = false
         redoButton.isHidden = true
