@@ -1,0 +1,67 @@
+# Fast compile check on every push. This exists because a Swift error that
+# compiles "in your head" (e.g. a parameter shadowing a method) silently broke
+# the Xcode Cloud archive for six versions — the device stayed on an old build
+# and nobody knew until a TestFlight email. This job turns that into a red X on
+# the commit within a few minutes.
+#
+# It only COMPILES (iOS app + embedded keyboard for the simulator, and the Mac
+# app), with code signing off. It does not archive, sign, or upload — Xcode
+# Cloud still does the real TestFlight builds. The point is to catch "it doesn't
+# even build" instantly.
+name: CI Build
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch cancels an in-flight run, so we don't burn
+# macOS minutes on stale commits.
+concurrency:
+  group: ci-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: Compile iOS + macOS
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Xcode project is generated from project.yml (never committed), so CI
+      # has to generate it the same way a developer does.
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # Resolve the FluidAudio Swift package up front so a network hiccup shows as
+      # its own step rather than a confusing build failure.
+      - name: Resolve Swift packages
+        run: xcodebuild -resolvePackageDependencies -project Dictator.xcodeproj
+
+      # iOS: build the app AND the embedded keyboard extension for the simulator.
+      # A simulator destination needs no code signing.
+      - name: Build iOS (app + keyboard)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Dictator.xcodeproj \
+            -scheme "Dictator (iOS)" \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+      # macOS: compile the Mac app without signing.
+      - name: Build macOS
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Dictator.xcodeproj \
+            -scheme "Dictator (Mac)" \
+            -destination 'platform=macOS' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
