@@ -49,7 +49,7 @@ final class KeyHitStack: UIStackView {
         // — MUST fall through to its real view. Without this guard the nearest-key
         // snap below stole taps on the "Tap to talk" pill and typed y/u instead,
         // because UIKit calls hitTest here for sibling points too. (0.1.86 bug.)
-        guard point(inside: point, with: event) else { return nil }
+        guard self.point(inside: point, with: event) else { return nil }
 
         // Space-bar lift: give the space bar a small head start on the band just
         // above it, so quick space taps that land low on b/n/m still register as

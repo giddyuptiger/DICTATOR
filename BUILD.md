@@ -382,6 +382,19 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.93 — BUILD HOTFIX: keyboard didn't compile since 0.1.87 (2026-09-19)
+
+Xcode Cloud's "Archive - iOS" failed with: `Cannot call value of non-function type 'CGPoint'`
+at KeyboardViewController.swift line 52. Cause: in `KeyHitStack.hitTest(_ point:...)` the
+parameter is named `point`, which shadowed the `point(inside:with:)` method — `point(inside:)`
+tried to call the CGPoint value as a function. Fix: `self.point(inside:...)`.
+
+CRUCIAL CONSEQUENCE: this error was introduced in 0.1.87, so EVERY iOS build 0.1.87→0.1.92
+failed to compile and never reached TestFlight — the device was stuck on 0.1.86 (which still
+had the mic-pill dead-zone bug). This one-line fix unblocks the whole backlog at once:
+mic-pill fix (0.1.87), space-bar lift (0.1.88), Patois/Shakespearean modes (0.1.91), and the
+no-audio-ducking fix (0.1.92) all ship together in 0.1.93. Verify the app shows 0.1.93.
+
 ### 0.1.92 — stop ducking other audio while the app is just open (2026-09-19)
 
 Reported: the phone's music/video volume drops whenever the Dictator app is open, even when
