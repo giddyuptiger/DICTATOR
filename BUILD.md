@@ -382,6 +382,22 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.95 — make Patois/Shakespearean actually transform (2026-09-19)
+
+Reported: dictating in Patois or Shakespearean returned plain casual/formal text — no
+transformation. Cause: those modes rewrite the words, but the cleanup base prompt repeatedly
+and emphatically says "you are a typist, NEVER change words, reproduce them exactly." The
+mode's "now translate this" instruction came last, and the small cleanup model obeyed the
+louder base rule instead — so it just cleaned the text.
+
+Fix: transformsWording modes now use a separate `transformBase` system prompt that states up
+front the job is to REWRITE the wording into the target style (meaning/proper nouns/numbers
+preserved, no answering questions, no added content). Non-transforming modes are unchanged.
+The fidelity guards were already relaxed for these modes (0.1.91).
+
+NOTE: quality depends on the cloud cleanup model; if 8b's Patois/Shakespeare is weak, the next
+step is routing these two modes to a stronger cleanup model.
+
 ### 0.1.94 — don't loop on the wake screen during a phone call (2026-09-19)
 
 Reported: while on a call, typing kept bouncing to the wake screen. Cause: a phone/FaceTime

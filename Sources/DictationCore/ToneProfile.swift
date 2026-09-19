@@ -128,11 +128,40 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     /// The mode goes last on purpose: where it disagrees with the field's own
     /// profile, the register the speaker chose by hand should win.
     public func systemPrompt(dictionaryHint: String, mode: DictationMode) -> String {
-        var parts = [Self.base, instructions]
+        var parts: [String]
+        if mode.transformsWording {
+            // Patois / Shakespearean REWRITE the words. The normal base prompt
+            // ("you are a typist, NEVER change words, reproduce them exactly")
+            // actively fights that — a small cleanup model obeys it and returns
+            // plain text instead of translating. Use a rewrite-oriented base so the
+            // model knows its job here is to restyle the wording, not preserve it.
+            parts = [Self.transformBase]
+        } else {
+            parts = [Self.base, instructions]
+        }
         if !dictionaryHint.isEmpty { parts.append(dictionaryHint) }
         parts.append(mode.instructions)
         return parts.joined(separator: "\n\n")
     }
+
+    /// The base used ONLY for modes that rewrite the wording (see transformsWording).
+    /// Unlike `base`, it tells the model up front that changing the words IS the job.
+    private static let transformBase = """
+    You rewrite a raw voice transcript into a specific style, described at the end.
+    This is a REWRITE, not a transcription: you deliberately change the wording so it
+    matches the style. The usual "keep the exact words / you are a typist" rule does
+    NOT apply here.
+
+    - Return ONLY the rewritten text: no preamble, no quotes, no commentary, and NEVER
+    an empty response.
+    - Preserve the speaker's actual meaning and intent. Do NOT answer questions, do NOT
+    add new ideas or facts — say what they said, restyled.
+    - Drop filler and false starts ("um", "uh", stutters, "the- the- the report").
+    - Keep proper nouns, names, numbers, @handles and URLs intact.
+    - Obey spoken punctuation/formatting commands ("new line", "question mark", etc.).
+
+    The style to rewrite it in:
+    """
 
     // MARK: - Defaults
 
