@@ -382,6 +382,19 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.91 — two new modes: Jamaican Patois and Shakespearean (2026-09-19)
+
+Added two fun registers to DictationMode: `patois` and `shakespearean`. Unlike the other
+modes (which only touch punctuation/formatting), these REWRITE the words, so:
+- Their mode prompts explicitly override the base "keep the exact words / you are a typist"
+  rule — translating is the whole job — while still preserving meaning, proper nouns and
+  numbers, and never answering questions.
+- New `DictationMode.transformsWording` flag; `Cleaner.reconcile` skips the fidelity guards
+  (shrink / expand / <60%-word-overlap) for those modes, which would otherwise discard a
+  correct rewrite. The empty and refusal guards still apply.
+- iOS Style tab shows both with example lines; Mac Mode menu and keyboard mode cycle pick
+  them up automatically (they iterate allCases).
+
 ### 0.1.90 — Mac Mode menu shows the selected register reliably (2026-09-18)
 
 The selected mode's checkmark was drawn as a Button systemImage, which SwiftUI menus don't

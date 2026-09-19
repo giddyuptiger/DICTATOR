@@ -564,6 +564,8 @@ struct ContentView: View {
         case .formal:      return "Complete sentences, no contractions. Disciplined, not inflated."
         case .expressive:  return "Casual, with ! and … where the feeling calls for it."
         case .emoji:       return "Casual, plus one emoji placed where it fits best."
+        case .patois:      return "Rewrites what you said in Jamaican Patois."
+        case .shakespearean: return "Rewrites what you said in Shakespearean English."
         }
     }
 
@@ -574,6 +576,8 @@ struct ContentView: View {
         case .formal:      return "Hello. Are you available? I would like to arrange a meal."
         case .expressive:  return "Hey! You around? Let's grab food later!"
         case .emoji:       return "Hey, you around? Let's grab food later 🍜"
+        case .patois:      return "Yuh deh bout? Yuh waan grab a food later?"
+        case .shakespearean: return "Art thou nearby? Shall we sup together anon?"
         }
     }
 

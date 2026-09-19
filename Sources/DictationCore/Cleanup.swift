@@ -92,36 +92,42 @@ public struct Cleaner: Sendable {
             return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup refused; used raw transcript")
         }
 
-        // Content-fidelity guard. Cleanup must reformat, not summarize. If the
-        // cleaned text is under half the word count of a non-trivial transcript,
-        // content was cut: keep the user's actual words.
-        let rawWords = trimmed.split(whereSeparator: \.isWhitespace).count
-        let cleanWords = cleanedTrimmed.split(whereSeparator: \.isWhitespace).count
-        if rawWords >= 12, cleanWords * 2 < rawWords {
-            let text = dictionary.apply(to: trimmed)
-            return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup dropped too much (\(rawWords)→\(cleanWords) words); used raw transcript")
-        }
-
-        // Ramble guard. A model that ANSWERS the transcript balloons the output.
-        // Reformatting never doubles length, so a big expansion means it went off
-        // the rails: keep the user's words.
-        if rawWords >= 3, cleanWords > rawWords * 2 + 12 {
-            let text = dictionary.apply(to: trimmed)
-            return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup expanded too much (\(rawWords)→\(cleanWords) words); used raw transcript")
-        }
-
-        // Answer guard. A cleanup that REPLIES to the transcript won't contain the
-        // user's own words. If fewer than 60% of the raw words survive, the model
-        // answered rather than reformatted: keep the user's actual words.
-        func wordSet(_ s: String) -> Set<String> {
-            Set(s.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
-        }
-        let rawSet = wordSet(trimmed)
-        if rawSet.count >= 5 {
-            let kept = Double(rawSet.intersection(wordSet(cleanedTrimmed)).count) / Double(rawSet.count)
-            if kept < 0.6 {
+        // The fidelity guards below assume cleanup only reformats the SAME words.
+        // The Patois / Shakespearean modes deliberately rewrite the wording, so
+        // these guards would wrongly discard a correct translation — skip them for
+        // those modes. The empty/refusal guards above still apply.
+        if !DictationMode.current.transformsWording {
+            // Content-fidelity guard. Cleanup must reformat, not summarize. If the
+            // cleaned text is under half the word count of a non-trivial transcript,
+            // content was cut: keep the user's actual words.
+            let rawWords = trimmed.split(whereSeparator: \.isWhitespace).count
+            let cleanWords = cleanedTrimmed.split(whereSeparator: \.isWhitespace).count
+            if rawWords >= 12, cleanWords * 2 < rawWords {
                 let text = dictionary.apply(to: trimmed)
-                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: String(format: "cleanup diverged (kept %.0f%% of words); used raw transcript", kept * 100))
+                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup dropped too much (\(rawWords)→\(cleanWords) words); used raw transcript")
+            }
+
+            // Ramble guard. A model that ANSWERS the transcript balloons the output.
+            // Reformatting never doubles length, so a big expansion means it went off
+            // the rails: keep the user's words.
+            if rawWords >= 3, cleanWords > rawWords * 2 + 12 {
+                let text = dictionary.apply(to: trimmed)
+                return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "cleanup expanded too much (\(rawWords)→\(cleanWords) words); used raw transcript")
+            }
+
+            // Answer guard. A cleanup that REPLIES to the transcript won't contain the
+            // user's own words. If fewer than 60% of the raw words survive, the model
+            // answered rather than reformatted: keep the user's actual words.
+            func wordSet(_ s: String) -> Set<String> {
+                Set(s.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
+            }
+            let rawSet = wordSet(trimmed)
+            if rawSet.count >= 5 {
+                let kept = Double(rawSet.intersection(wordSet(cleanedTrimmed)).count) / Double(rawSet.count)
+                if kept < 0.6 {
+                    let text = dictionary.apply(to: trimmed)
+                    return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: String(format: "cleanup diverged (kept %.0f%% of words); used raw transcript", kept * 100))
+                }
             }
         }
 

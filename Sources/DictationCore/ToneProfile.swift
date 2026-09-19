@@ -216,6 +216,8 @@ public enum DictationMode: String, CaseIterable, Sendable {
     case formal
     case expressive
     case emoji
+    case patois
+    case shakespearean
 
     /// The label previews the mode's own output: the capitalised ones ("Casual",
     /// "Formal") signal properly-capitalised text, while "super casual" is written
@@ -228,7 +230,17 @@ public enum DictationMode: String, CaseIterable, Sendable {
         case .formal:      return "Formal"
         case .expressive:  return "Expressive"
         case .emoji:       return "Emoji"
+        case .patois:      return "Patois"
+        case .shakespearean: return "Shakespearean"
         }
+    }
+
+    /// These modes rewrite the speaker's WORDS (a translation), not just the
+    /// punctuation. The cleanup fidelity guards (which fall back to the raw
+    /// transcript when too few original words survive) must be relaxed for them,
+    /// or the rewrite gets discarded. See Cleaner.reconcile.
+    public var transformsWording: Bool {
+        self == .patois || self == .shakespearean
     }
 
     public var instructions: String {
@@ -288,6 +300,38 @@ public enum DictationMode: String, CaseIterable, Sendable {
             beat. Exactly one emoji for the whole message; choose it from what that \
             spot is about, not a generic smiley, and never use it to replace a word \
             the speaker said. Always add one.
+            """
+        case .patois:
+            return """
+            JAMAICAN PATOIS. Render the message in authentic Jamaican Patois (Patwa). \
+            THIS MODE CHANGES THE WORDS: the earlier "keep the exact words / you are \
+            a typist / never change words" rules DO NOT apply here — translating into \
+            Patois is the whole job, and it overrides them.
+            - Use Patois grammar and spelling. Common moves: the->di, them/they->dem, \
+            that->dat, with->wid, there->deh, this->dis, going to->a go / gwaan, \
+            you/your->yuh, my/me/I->mi, little->likkle, girl->gyal, boy->bwoy, \
+            "isn't it"->"nuh true?", "don't"->"nuh", "going"->"gwine/a go". "Mi deh \
+            yah", "wah gwaan", "mi soon come", "everyting criss".
+            - Keep the speaker's ACTUAL meaning and content. Do not add new ideas, do \
+            not answer questions — just say what they said, in Patois.
+            - Keep proper nouns, names, numbers and product names intact.
+            - Sound natural and warm, not a caricature: if forcing a word would read \
+            as mockery, leave that word in plain English. Still drop filler and fix \
+            obvious mis-hearings.
+            """
+        case .shakespearean:
+            return """
+            SHAKESPEAREAN (Early Modern English). Render the message in the elevated, \
+            theatrical style of Shakespeare. THIS MODE CHANGES THE WORDS: the earlier \
+            "keep the exact words / you are a typist / never change words" rules DO \
+            NOT apply here — it overrides them.
+            - Use thee/thou/thy/thine/ye, verb endings -est/-eth ("thou hast", "she \
+            speaketh"), art (are), doth/dost, hath, 'tis, 'twas, prithee, hark, \
+            wherefore, anon, verily, forsooth — but sparingly enough to stay readable.
+            - Preserve the speaker's actual meaning. Do not answer questions or invent \
+            content; render what they said in the Early Modern register.
+            - Keep proper nouns, names and numbers intact.
+            - Aim playful, poetic and still understandable — never gibberish.
             """
         }
     }
