@@ -382,6 +382,21 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.94 — don't loop on the wake screen during a phone call (2026-09-19)
+
+Reported: while on a call, typing kept bouncing to the wake screen. Cause: a phone/FaceTime
+call takes the mic non-mixably, so iOS refuses to start our record session (error 561017449);
+the app kept retrying (warmUp 4×, heartbeat rebuild every 2s, keep-alive) and each failure
+cascaded into the keyboard showing the wake screen. No app can record during a call.
+- New `audioInterrupted` flag, set on the AVAudioSession interruption `.began` and cleared on
+  `.ended`. While set, warmUp / resync / the heartbeat rebuild + keep-alive all no-op, so
+  there's no failure loop. The `.ended` handler rebuilds as before once the call ends.
+- `warmForWake` (the keyboard's wake path) now, during a call, tells the keyboard
+  "Can't dictate during a call" instead of showing the swipe-back wake screen.
+
+NOTE: dictation genuinely cannot record during a call — this just makes the app say so and
+stop thrashing, and recover cleanly when the call ends.
+
 ### 0.1.93 — BUILD HOTFIX: keyboard didn't compile since 0.1.87 (2026-09-19)
 
 Xcode Cloud's "Archive - iOS" failed with: `Cannot call value of non-function type 'CGPoint'`

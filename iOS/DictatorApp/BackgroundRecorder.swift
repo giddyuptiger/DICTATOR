@@ -558,6 +558,12 @@ public final class BackgroundRecorder: ObservableObject {
             log("warmUp ignored, one already in flight")
             return
         }
+        guard !audioInterrupted else {
+            // A call owns the mic; the retry loop below would just fail 4× on
+            // 561017449. Skip and wait for the interruption to end.
+            log("warmUp skipped — a call or another app has the mic")
+            return
+        }
         isWarming = true
         defer { isWarming = false }
 
@@ -657,6 +663,10 @@ public final class BackgroundRecorder: ObservableObject {
 
     public func resync() async {
         guard !isWarming else { return }           // a warm-up is already running
+        guard !audioInterrupted else {             // a call has the mic; wait it out
+            log("resync skipped — audio interrupted (call in progress)")
+            return
+        }
         switch state {
         case .warm:
             if audio.isRunning { return }          // genuinely alive, nothing to do
@@ -719,6 +729,14 @@ public final class BackgroundRecorder: ObservableObject {
     /// creates a rebuild loop that churns the audio session (speaker pops, wrecked
     /// capture). Silent deaths are caught on the next foreground by `resync`,
     /// which is also rate-limited as a backstop.
+    /// True while another app owns the microphone non-mixably — a phone or
+    /// FaceTime call is the big one. iOS refuses to start our record session then
+    /// (error 561017449), so warming/rebuilding just fails over and over, which
+    /// bounced the user to the wake screen. While this is set we pause every
+    /// warm/rebuild attempt and tell the user why; the interruption-ended
+    /// notification clears it and rebuilds.
+    private(set) var audioInterrupted = false
+
     private func observeAudioLifecycle() {
         guard !lifecycleObserved else { return }
         lifecycleObserved = true
@@ -730,6 +748,7 @@ public final class BackgroundRecorder: ObservableObject {
                 guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                       let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
                 if type == .ended {
+                    self.audioInterrupted = false
                     self.log("audio interruption ended; rebuilding")
                     // Regain residency immediately — playback can restart from the
                     // background, so this works even when we are not foregrounded.
@@ -738,7 +757,11 @@ public final class BackgroundRecorder: ObservableObject {
                     // rebuild there.
                     if self.isForeground { Task { await self.resync() } }
                 } else {
-                    self.log("audio interrupted")
+                    // A call (or other app) has taken the mic. Stop trying to warm
+                    // until it ends — otherwise we loop on 561017449 and strand the
+                    // user on the wake screen.
+                    self.audioInterrupted = true
+                    self.log("audio interrupted (a call or another app has the mic)")
                 }
             }
         }
@@ -844,11 +867,14 @@ public final class BackgroundRecorder: ObservableObject {
                 // rebuild — but only while foregrounded, and `resync` is rate-
                 // limited so a flapping engine can never turn this 2 s tick into a
                 // rebuild loop (which pops the speaker and wrecks capture).
-                if self.state == .warm, !self.audio.isRunning, self.isForeground {
+                if self.state == .warm, !self.audio.isRunning, self.isForeground, !self.audioInterrupted {
                     self.log("heartbeat: engine not running; rebuilding")
                     Task { await self.resync() }
                     return
                 }
+                // A call has the mic — don't try to rebuild or keep-alive; both fail
+                // on 561017449 until it ends. The interruption-ended handler recovers.
+                if self.audioInterrupted { return }
                 // RESIDENCY. The silent player is the only thing stopping iOS
                 // suspending us, and nothing was watching it — the two checks
                 // above watch the MICROPHONE engine, which can be perfectly
@@ -1093,6 +1119,15 @@ public final class BackgroundRecorder: ObservableObject {
         // background guard in resync would otherwise defer the single warm-up
         // this entire cold-start path exists to perform.
         isForeground = true
+        // If a call has the mic, don't show the "swipe back to dictate" screen —
+        // dictation can't work until the call ends. Tell the keyboard plainly so it
+        // shows the reason instead of bouncing the user here on every tap.
+        if audioInterrupted {
+            log("wake skipped — a call has the mic")
+            SharedStore.publish(error: "Can't dictate during a call", retryable: true)
+            DarwinBridge.shared.post(.failed)
+            return
+        }
         if state != .warm { await resync() }
         maybePrepareLocalModel()
         wokeForDictation = true
