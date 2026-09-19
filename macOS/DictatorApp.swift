@@ -146,15 +146,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var accessibilityWatch: Timer?
     private let indicator = ListeningIndicator()
 
-    var menuIcon: String {
-        if isRecording { return "mic.fill" }
-        if status.hasPrefix("Ready") { return "mic" }
-        return "mic.slash"
-    }
+    /// The warning symbol shown in place of the logo when a permission is
+    /// missing — the one case where the menu bar itself should nag the user.
+    var menuIcon: String { "exclamationmark.triangle.fill" }
 
-    /// Show the brand logo in the menu bar when idle and ready; fall back to the
-    /// state-carrying symbols while recording or when not set up.
-    var menuShowsLogo: Bool { !isRecording && status.hasPrefix("Ready") }
+    /// The brand mark is the menu-bar icon in every normal state (idle,
+    /// listening, transcribing) — recording is signalled by the floating green
+    /// waveform, not by swapping the icon. We only fall back to a warning symbol
+    /// when Dictator literally can't work: microphone or Accessibility denied.
+    var menuShowsLogo: Bool { micGranted && !needsAccessibility }
 
     /// Relaunch the app. macOS activates an Accessibility grant only for a freshly
     /// launched process, so after the user allows Dictator the reliable path is a

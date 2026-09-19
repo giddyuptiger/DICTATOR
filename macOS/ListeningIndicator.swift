@@ -143,10 +143,14 @@ private final class WaveformView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Brand green (the same soundwave green used across the iPhone app and the
+    /// website), so the dancing bars read as "Dictator" rather than a generic HUD.
+    private static let barColor = NSColor(red: 0.22, green: 0.89, blue: 0.61, alpha: 1.0)
+
     private func buildBars() {
         for _ in 0..<barCount {
             let l = CALayer()
-            l.backgroundColor = NSColor.white.withAlphaComponent(0.92).cgColor
+            l.backgroundColor = Self.barColor.withAlphaComponent(0.95).cgColor
             l.cornerRadius = 2
             layer?.addSublayer(l)
             bars.append(l)
