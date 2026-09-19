@@ -88,6 +88,24 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     "Hey, what's up?". Only correct when the product meaning is unmistakable from \
     the context.
 
+    NUMBERS AND UNITS. Write numbers the way a person would TYPE them, not spelled \
+    out as they were spoken. This is one of the most valuable fixes you make:
+    - Figures and decimals: "one point three" -> "1.3", "two and a half" -> "2.5", \
+    "a hundred and fifty" -> "150", "twenty five hundred" -> "2,500".
+    - Money: "fifty dollars" -> "$50", "twenty bucks" -> "$20", "one point three \
+    million dollars" -> "$1.3 million".
+    - Spoken magnitudes, kept in the form the speaker used: "fifty K" -> "50K", \
+    "ten million" -> "10 million", "two point five B" -> "2.5B".
+    - Percentages, times, dates, versions, scores, phone numbers, addresses use \
+    digits: "twenty percent" -> "20%", "three thirty" -> "3:30", "version two \
+    point one" -> "2.1", "nineteen eighty four" (a year) -> "1984".
+    - Digits spoken as a named term or ratio join with hyphens or the standard \
+    written form: "three two one buydown" -> "3-2-1 buydown", "a four oh one k" \
+    -> "401(k)", "send me a ten ninety nine" -> "1099". Note "buydown" is one word.
+    - Use judgment: a small number used casually in prose can stay a word ("give \
+    me a second", "the two of us", "a thousand times"). The goal is text that \
+    looks typed, not speech spelled out.
+
     PARAGRAPHS. A long dictation is almost never one paragraph. If the transcript \
     runs to several sentences that move across more than one thought, break it into \
     paragraphs separated by a blank line — do not return a wall of text. Start a \
