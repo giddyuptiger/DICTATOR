@@ -19,11 +19,26 @@ import Foundation
 /// (see ToneProfile PROPER NOUNS) also restores them from context, which is what
 /// covers the on-device engine, whose model takes no bias hint.
 public enum BuiltinVocabulary {
-    public static let terms = [
+    /// Brand / product names that speech models mangle into homophones.
+    static let products = [
         "WhatsApp", "iPhone", "iPad", "iOS", "macOS", "iMessage", "FaceTime",
         "AirPods", "Instagram", "TikTok", "YouTube", "Gmail", "Google", "Spotify",
         "Slack", "Zoom", "PayPal", "Venmo", "Uber", "Netflix", "Dictator",
     ]
+
+    /// Finance, mortgage, real-estate and startup terms a general model splits
+    /// ("buy down" -> "buydown"), mis-cases, or under-formats. Seeded so the
+    /// recognizer is nudged toward the right spelling for everyone; the NUMBERS
+    /// section of the cleanup prompt handles the digit forms ("3-2-1 buydown").
+    static let finance = [
+        "buydown", "3-2-1 buydown", "2-1 buydown", "escrow", "amortization",
+        "refinance", "HELOC", "APR", "APY", "FICO", "underwriting", "PMI",
+        "closing costs", "earnest money", "1031 exchange", "401(k)", "1099",
+        "W-2", "Roth IRA", "EBITDA", "ARR", "MRR", "cap table", "SAFE note",
+        "term sheet", "runway",
+    ]
+
+    public static let terms = products + finance
 }
 
 public struct PersonalDictionary: Codable, Sendable {
