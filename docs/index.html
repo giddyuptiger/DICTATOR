@@ -3,38 +3,146 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dictator</title>
+<title>Dictator — Private dictation for iPhone & Mac</title>
+<meta name="description" content="Dictator turns your voice into clean, formatted text anywhere — transcribed privately on your device. A fast, private alternative to $15/mo dictation apps.">
+<meta property="og:title" content="Dictator">
+<meta property="og:description" content="Private dictation for iPhone & Mac. Talk, get clean text anywhere.">
+<meta property="og:image" content="icon.png">
 <style>
-  :root { color-scheme: light dark; }
+  :root {
+    --bg: #0b0f12;
+    --panel: #12181d;
+    --ink: #eef2f0;
+    --muted: #9aa6a0;
+    --green: #37e39b;
+    --green-deep: #12a45c;
+    --line: #223028;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
-    font: 18px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    max-width: 640px; margin: 0 auto; padding: 80px 20px;
-    color: #1c1c1e; background: #fff; text-align: center;
+    margin: 0;
+    font: 17px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(900px 500px at 50% -8%, rgba(55,227,155,0.16), transparent 60%),
+      var(--bg);
+    -webkit-font-smoothing: antialiased;
   }
-  @media (prefers-color-scheme: dark) {
-    body { color: #e6e6e6; background: #1c1c1e; }
-    a { color: #6ea8ff; }
-    .mark { background: linear-gradient(135deg,#6b57dc,#9a61eb); }
+  a { color: var(--green); }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+
+  header { text-align: center; padding: 72px 20px 8px; }
+  .icon {
+    width: 108px; height: 108px; border-radius: 24px; display: block; margin: 0 auto 22px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04);
   }
-  .mark {
-    width: 92px; height: 92px; border-radius: 22px; margin: 0 auto 24px;
-    background: linear-gradient(135deg,#6b57dc,#9a61eb);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 46px;
+  h1 { font-size: 2.6rem; margin: 0 0 .12em; letter-spacing: -0.02em; }
+  .tag { color: var(--muted); font-size: 1.2rem; margin: 0 auto; max-width: 30ch; }
+
+  .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin: 34px 0 6px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 14px 22px; border-radius: 13px; font-weight: 600; text-decoration: none;
+    font-size: 1.02rem; border: 1px solid transparent;
   }
-  h1 { font-size: 2.2rem; margin: 0 0 0.3em; }
-  p.tag { color: #8a8a8e; font-size: 1.1rem; }
-  nav { margin-top: 40px; }
-  nav a { display: inline-block; margin: 0 12px; color: #0a66ff; }
+  .btn.primary { background: linear-gradient(135deg, var(--green), var(--green-deep)); color: #04140c; }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.ghost { background: transparent; border-color: var(--line); color: var(--muted); }
+  .btn small { display: block; font-weight: 500; font-size: .72rem; opacity: .8; }
+  .req { text-align: center; color: var(--muted); font-size: .86rem; margin-top: 10px; }
+
+  section { padding: 44px 0; border-top: 1px solid var(--line); margin-top: 56px; }
+  h2 { font-size: 1.5rem; margin: 0 0 22px; text-align: center; letter-spacing: -0.01em; }
+  .feat { display: grid; gap: 18px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 560px) { .feat { grid-template-columns: 1fr; } h1 { font-size: 2.1rem; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 1.06rem; }
+  .card p { margin: 0; color: var(--muted); font-size: .96rem; }
+  .card .em { color: var(--green); }
+
+  .modes { text-align: center; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: .9rem; color: var(--ink); background: var(--panel); }
+
+  .soon { text-align: center; }
+  .soon .pill { display: inline-block; border: 1px solid var(--green-deep); color: var(--green); border-radius: 999px; padding: 4px 12px; font-size: .8rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; }
+
+  footer { text-align: center; color: var(--muted); font-size: .9rem; padding: 40px 20px 60px; border-top: 1px solid var(--line); margin-top: 56px; }
+  footer a { margin: 0 10px; color: var(--muted); }
 </style>
 </head>
 <body>
-  <div class="mark">🎙️</div>
-  <h1>Dictator</h1>
-  <p class="tag">Private, on-device dictation for iPhone.</p>
-  <nav>
-    <a href="privacy-policy.html">Privacy Policy</a>
-    <a href="terms.html">Terms of Service</a>
-  </nav>
+  <div class="wrap">
+    <header>
+      <img class="icon" src="icon.png" alt="Dictator app icon" width="108" height="108">
+      <h1>Dictator</h1>
+      <p class="tag">Private dictation for iPhone &amp; Mac. Talk, get clean text anywhere.</p>
+
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/giddyuptiger/DICTATOR/releases/latest">
+          Download for Mac
+          <small>Notarized &middot; macOS 14+</small>
+        </a>
+        <span class="btn ghost">
+          iPhone
+          <small>Coming soon to the App Store</small>
+        </span>
+      </div>
+      <p class="req">Mac: hold <b>fn</b> and talk. iPhone: tap the Dictator keyboard's mic in any app.</p>
+    </header>
+
+    <section>
+      <h2>Why Dictator</h2>
+      <div class="feat">
+        <div class="card">
+          <h3>Private by default</h3>
+          <p>On-device transcription — your voice never leaves your iPhone, and it works offline.</p>
+        </div>
+        <div class="card">
+          <h3>Actually clean text</h3>
+          <p>Fixes punctuation and capitalization, drops the "um"s, breaks long thoughts into paragraphs.</p>
+        </div>
+        <div class="card">
+          <h3>Works everywhere</h3>
+          <p>A keyboard on iPhone, a hold-to-talk hotkey on Mac. Text lands where your cursor is.</p>
+        </div>
+        <div class="card">
+          <h3>It respects your music</h3>
+          <p>Records over whatever you're playing — never pauses, ducks, or hijacks your audio.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="modes">
+      <h2>Say it your way</h2>
+      <p>Pick a register and Dictator matches it.</p>
+      <div class="chips">
+        <span class="chip">super casual</span>
+        <span class="chip">Casual</span>
+        <span class="chip">Formal</span>
+        <span class="chip">Expressive</span>
+        <span class="chip">Emoji</span>
+        <span class="chip">Patois 🇯🇲</span>
+        <span class="chip">Shakespearean 🎭</span>
+      </div>
+    </section>
+
+    <section class="soon">
+      <span class="pill">Premium coming soon</span>
+      <h2 style="margin-top:16px;">Cloud accuracy &amp; speed</h2>
+      <p class="modes">On-device stays free, forever. A premium tier will add the fastest, most
+      accurate cloud transcription and higher limits — a fair trade for power users.</p>
+    </section>
+
+    <footer>
+      <div>
+        <a href="privacy-policy.html">Privacy Policy</a>
+        <a href="terms.html">Terms of Use</a>
+        <a href="mailto:support@irons.la">Support</a>
+      </div>
+      <p style="margin-top:14px; opacity:.7;">© 2026 Dictator. Made by Jeremy Irons.</p>
+    </footer>
+  </div>
 </body>
 </html>
