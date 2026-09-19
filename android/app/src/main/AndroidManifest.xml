@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The keyboard captures audio directly (Android IMEs are allowed to, unlike
+         iOS extensions) and uploads it for cloud transcription + cleanup. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:allowBackup="true"
+        android:label="Dictator"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Dictator">
+
+        <!-- Setup / onboarding screen. Enables the keyboard, requests the mic
+             permission, and picks the dictation mode. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="Dictator">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- The IME itself. BIND_INPUT_METHOD ensures only the system can bind it;
+             the intent filter + meta-data are what register it as a keyboard. -->
+        <service
+            android:name=".DictatorInputMethodService"
+            android:exported="true"
+            android:label="Dictator"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+
+    </application>
+
+</manifest>

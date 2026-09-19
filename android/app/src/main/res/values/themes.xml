@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- MainActivity uses Compose + Material3, so a plain Material3 base theme with
+         no action bar is all the platform theme needs to provide. -->
+    <style name="Theme.Dictator" parent="Theme.Material3.DayNight.NoActionBar" />
+</resources>
