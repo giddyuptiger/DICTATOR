@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- net8.0-windows gives us the Win32 P/Invoke surface plus WinForms (for the
+         NotifyIcon tray). This is a background tray app, so there is no main window. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- WinForms is used only for NotifyIcon / ContextMenuStrip and the message pump
+         that the low-level keyboard hook needs. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Dictator</RootNamespace>
+    <AssemblyName>Dictator</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- No console window flashes on launch. -->
+    <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Microphone capture + WAV writing. WaveInEvent gives us a message-pump-free
+         capture thread, and WaveFormat(16000,16,1) makes Windows resample to the
+         exact 16 kHz / mono / PCM16 the backend wants, so we never resample by hand. -->
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+</Project>
