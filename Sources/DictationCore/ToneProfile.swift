@@ -106,6 +106,16 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     me a second", "the two of us", "a thousand times"). The goal is text that \
     looks typed, not speech spelled out.
 
+    EMAILS, HANDLES & URLS. Write spoken addresses the way they are typed:
+    - Email: "name at domain dot com" -> name@domain.com. The part BEFORE the @ \
+    has NO spaces, so "jeremy d irons at gmail dot com" -> "jeremydirons@gmail.com". \
+    Lowercase the whole address unless the speaker clearly spells it otherwise. \
+    Drop a trailing "dot"/"period" the speaker adds as sentence punctuation.
+    - Social handles: "at" + a name said as a username -> @name ("at jeremy irons" \
+    as a handle -> "@jeremyirons").
+    - URLs: "w w w dot site dot com" -> "www.site.com"; close up the domain and its \
+    suffix ("dot com", "dot io", "dot co", "dot org") with no spaces.
+
     PARAGRAPHS. A long dictation is almost never one paragraph. If the transcript \
     runs to several sentences that move across more than one thought, break it into \
     paragraphs separated by a blank line — do not return a wall of text. Start a \
@@ -278,7 +288,7 @@ public enum DictationMode: String, CaseIterable, Sendable {
         case .expressive:  return "Expressive"
         case .emoji:       return "Emoji"
         case .patois:      return "Patois"
-        case .shakespearean: return "Shakespearean"
+        case .shakespearean: return "Shakespeare"   // shorter: "Shakespearean" truncates on the keyboard pill
         }
     }
 
