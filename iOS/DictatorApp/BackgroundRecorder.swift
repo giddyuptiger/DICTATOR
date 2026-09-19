@@ -1113,6 +1113,22 @@ public final class BackgroundRecorder: ObservableObject {
     /// because the user wanted to dictate in their other app, not in Dictator.
     /// Warming makes the app resident so from now on the keyboard reaches it in
     /// place, with no more bouncing. The banner tells the user to go back once.
+    /// Actively test whether the microphone is available right now, rather than
+    /// trusting the interruption flag (whose .ended event is unreliable with AirPods
+    /// and route changes). Tries to activate the same record session warm-up uses;
+    /// success means the mic is free. If it succeeds we leave the session active —
+    /// the resync that follows rebuilds the engine on top of it anyway.
+    private func micAvailableNow() -> Bool {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            return true
+        } catch {
+            return false   // still busy (e.g. 561017449 during a call)
+        }
+    }
+
     public func warmForWake() async {
         // Reached only from onOpenURL, i.e. the app is being brought to the
         // front right now. scenePhase may not have said .active yet, and the
@@ -1120,13 +1136,23 @@ public final class BackgroundRecorder: ObservableObject {
         // this entire cold-start path exists to perform.
         isForeground = true
         // If a call has the mic, don't show the "swipe back to dictate" screen —
-        // dictation can't work until the call ends. Tell the keyboard plainly so it
-        // shows the reason instead of bouncing the user here on every tap.
+        // dictation can't work until the call ends. BUT don't trust the interruption
+        // flag blindly: the .ended notification is unreliable (with AirPods and
+        // other route changes it often never arrives), so the flag can strand "on"
+        // long after the call ended, and every wake then fails with "a call has the
+        // mic" forever. So when the flag is set, actively PROBE the session — if the
+        // mic is really free now, the call ended without an .ended event; clear the
+        // stale flag and proceed. Only a probe that still fails means a call.
         if audioInterrupted {
-            log("wake skipped — a call has the mic")
-            SharedStore.publish(error: "Can't dictate during a call", retryable: true)
-            DarwinBridge.shared.post(.failed)
-            return
+            if micAvailableNow() {
+                audioInterrupted = false
+                log("wake: mic is free again, cleared stale interruption")
+            } else {
+                log("wake skipped — a call has the mic")
+                SharedStore.publish(error: "Can't dictate during a call", retryable: true)
+                DarwinBridge.shared.post(.failed)
+                return
+            }
         }
         if state != .warm { await resync() }
         maybePrepareLocalModel()

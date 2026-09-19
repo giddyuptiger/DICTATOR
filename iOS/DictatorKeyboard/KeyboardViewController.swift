@@ -855,11 +855,10 @@ final class KeyboardViewController: UIInputViewController {
             statusLabel.text = "Complete setup in Dictator"
         case .needsSession:
             applyPill(Self.pillBlue)
-            // Honest copy: a keyboard extension cannot reliably launch its
-            // container app on modern iOS, so we instruct rather than promise a
-            // tap that often can't deliver. The tap still attempts a launch (it
-            // works on some setups), but the words tell the user the reliable path.
-            statusLabel.text = wakeMessage ?? "Open the Dictator app to wake it"
+            // Short, action-first copy: the tap attempts to launch the container
+            // app (works on most setups), so lead with the action. wakeMessage
+            // carries the fuller fallback path when a launch actually fails.
+            statusLabel.text = wakeMessage ?? "Tap to wake Dictator"
         case .waking:
             applyPill(Self.pillIndigo)
             statusLabel.text = "Waking Dictator…"
