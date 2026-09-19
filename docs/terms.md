@@ -2,7 +2,7 @@
 
 **Effective date:** September 17, 2026
 **Developer:** Jeremy Irons
-**Contact:** support@irons.la
+**Contact:** support@trydictator.com
 
 > ⚠️ **Draft.** Starting point, not legal advice. Have it reviewed before you
 > charge money, and fill in every [BRACKETED] placeholder — especially the
@@ -86,4 +86,4 @@ Terms.
 
 ## 12. Contact
 
-Jeremy Irons — support@irons.la
+Jeremy Irons — support@trydictator.com
