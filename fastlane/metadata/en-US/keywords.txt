@@ -1,1 +1,1 @@
-dictation,voice to text,speech to text,keyboard,transcribe,offline,private,voice typing,notes,voice
+speech to text,transcribe,voice typing,talk to type,offline,keyboard,notes,hands free,voice memo,AI

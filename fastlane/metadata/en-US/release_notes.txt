@@ -1,1 +1,1 @@
-First release. Private, on-device dictation from a keyboard you can use in any app. Tap the mic, speak, get clean, formatted text.
+First release. Private, on-device dictation from a keyboard you can use in any app. Tap the mic, speak, and get clean, formatted text — in the style you choose.
