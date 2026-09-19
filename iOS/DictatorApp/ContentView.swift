@@ -128,15 +128,17 @@ struct ContentView: View {
             engine = SharedStore.transcriptionEngine
             refreshChecklist()
             dictionary.reload()
-            if SharedStore.onboardingDone {
-                // Warming has to happen while foregrounded. This is the moment iOS
-                // grants the audio IO the background mode keeps.
-                await recorder.warmUp()
-            } else {
-                // First run: walk the user through setup, then warm up.
+            if !SharedStore.onboardingDone {
+                // First run: walk the user through setup.
                 onboardingStart = 1
                 showOnboarding = true
             }
+            // Deliberately DO NOT warm the mic just because the app is open. An
+            // active record session makes iOS turn other audio (music, video, calls)
+            // down the whole time — the "my volume is low while Dictator is open"
+            // bug. The mic warms only when it's actually needed: the keyboard wakes
+            // it via the wake flow (onOpenURL), and the in-app mic warms on tap.
+            recorder.releaseForForegroundIdle()
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -145,13 +147,10 @@ struct ContentView: View {
                 refreshChecklist()
                 selectedMode = DictationMode.current
                 recorder.reloadLog()
-                // The engine may have died while we were away (iOS suspended it,
-                // an interruption, low memory). Returning to the app rebuilds it if
-                // it is actually dead — the fix for "it says wake and only a
-                // force-quit revives it".
-                if SharedStore.onboardingDone {
-                    Task { await recorder.resync() }
-                }
+                // Coming back to the app should NOT leave the mic hot (that ducks
+                // other audio). Release it unless we were woken specifically to
+                // dictate or are mid-capture. The keyboard re-warms on demand.
+                recorder.releaseForForegroundIdle()
             case .inactive:
                 // NOT "we have left". .inactive fires for a notification banner, a
                 // Control Centre pull-down, the app switcher, and the system

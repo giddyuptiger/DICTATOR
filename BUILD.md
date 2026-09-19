@@ -382,6 +382,25 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.92 — stop ducking other audio while the app is just open (2026-09-19)
+
+Reported: the phone's music/video volume drops whenever the Dictator app is open, even when
+not dictating (Wispr Flow doesn't do this). Cause: the app kept a `.playAndRecord` session
+active the whole time it was "warm", and iOS attenuates other apps' audio the entire time a
+record session is live. Fix: don't keep the mic hot just because the app is on screen.
+- No longer warm the mic on app open (removed the `.task` warm-up); on returning to the
+  foreground, release it via the new `releaseForForegroundIdle()`; and release it after an
+  in-app dictation. All guarded: never mid-capture, and never during the keyboard's
+  wake-to-dictate flow (`wokeForDictation`).
+- The keyboard still works: it warms the mic on demand through the wake flow (onOpenURL) and
+  holds it warm in the background for fast follow-ups. The mic is simply off while you sit in
+  the app, so other audio plays at full volume.
+- Also carries the 0.1.87 mic-pill hit-test fix (a build before 0.1.87 still typed y/u/i when
+  the "Tap to talk" pill was tapped).
+
+NOTE: audio-session lifecycle change — verify on device that (a) other audio stays full while
+the app is open, and (b) keyboard dictation still works via the wake flow.
+
 ### 0.1.91 — two new modes: Jamaican Patois and Shakespearean (2026-09-19)
 
 Added two fun registers to DictationMode: `patois` and `shakespearean`. Unlike the other

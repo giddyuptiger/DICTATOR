@@ -1012,6 +1012,31 @@ public final class BackgroundRecorder: ObservableObject {
         state = .cold
     }
 
+    /// Release the mic while the app is merely open in the foreground.
+    ///
+    /// An active `.playAndRecord` session makes iOS turn other apps' audio down the
+    /// whole time it is live — the "my music/video volume drops while Dictator is
+    /// just open" bug. We do not need the mic hot simply because the app is on
+    /// screen: the keyboard warms it on demand through the wake flow, and the in-app
+    /// mic warms on a tap. So on foreground we let it go, which un-ducks other
+    /// audio. The on-device model stays loaded, so warming again is fast.
+    ///
+    /// Guarded: never mid-capture/transcribe, and never when the keyboard woke us to
+    /// dictate (that flow needs the mic hot until the user swipes back).
+    func releaseForForegroundIdle() {
+        guard state == .warm, !wokeForDictation else { return }
+        log("mic released (app in foreground) — other audio back to full volume")
+        stopLevelTimer()
+        heartbeat?.invalidate(); heartbeat = nil
+        captureCap?.invalidate(); captureCap = nil
+        flushTimer?.invalidate(); flushTimer = nil
+        idleTimer?.invalidate(); idleTimer = nil
+        let host = audio
+        Task.detached(priority: .utility) { host.stopEverything() }
+        SharedStore.setEngineWarm(false)
+        state = .cold
+    }
+
     // MARK: - Darwin signals from the keyboard
 
     private func listen() {
@@ -1549,6 +1574,10 @@ public final class BackgroundRecorder: ObservableObject {
         DarwinBridge.shared.post(.resultReady)
         state = .warm
         log("\(ms) ms: \(text.prefix(40))")
+        // In-app dictation (foreground): let the mic go now so it doesn't keep
+        // ducking other audio afterwards. The keyboard/background flow keeps it warm
+        // for fast follow-ups (isForeground is false there).
+        if isForeground, !wokeForDictation { releaseForForegroundIdle() }
     }
 
     private func finish(error: String, retryable: Bool) {
@@ -1560,6 +1589,7 @@ public final class BackgroundRecorder: ObservableObject {
         DarwinBridge.shared.post(.failed)
         state = .warm
         log("error: \(error)")
+        if isForeground, !wokeForDictation { releaseForForegroundIdle() }
     }
 
     /// Lets the UI write into the same log, so "the button did nothing" and
