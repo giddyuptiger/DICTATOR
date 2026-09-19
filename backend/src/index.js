@@ -41,6 +41,16 @@ export default {
       if (request.method === "GET" && url.pathname === "/healthz") {
         return json({ ok: true });
       }
+
+      // Waitlist signup from the marketing site (browser -> CORS). Handled BEFORE
+      // the Groq spend cap and device rate limits below: an email signup is not a
+      // Groq call and must never be blocked by (or count against) that budget.
+      if (url.pathname === "/v1/waitlist") {
+        if (request.method === "OPTIONS") return preflight(request);
+        if (request.method === "POST") return await handleWaitlist(request, env);
+        return json({ error: "method_not_allowed" }, 405);
+      }
+
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
       // Global spend circuit-breaker: hard stop if the day's request budget is spent.
@@ -209,6 +219,76 @@ async function handleDictate(request, env, ctx) {
     break; // a real error -> stop trying, fall back to raw below
   }
   return json({ raw, text: raw, cleaned: false });
+}
+
+// ---- Waitlist ---------------------------------------------------------------
+// Stores "notify me when iPhone launches" emails in KV (key `wl:<email>`), plus a
+// running `wl:count`. Export the list any time with:
+//   npx wrangler kv key list --binding RL --prefix "wl:" | grep -o 'wl:[^"]*@[^"]*'
+// No third-party email service needed to COLLECT; to SEND the launch email, export
+// and paste into any mailer (or wire one in later).
+
+const ALLOWED_ORIGINS = new Set([
+  "https://trydictator.com",
+  "https://www.trydictator.com",
+  "https://giddyuptiger.github.io",
+]);
+
+function corsFor(request) {
+  const origin = request.headers.get("Origin") || "";
+  const allow = ALLOWED_ORIGINS.has(origin) ? origin : "https://trydictator.com";
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Vary": "Origin",
+  };
+}
+
+function preflight(request) {
+  return new Response(null, { status: 204, headers: corsFor(request) });
+}
+
+function jsonCors(obj, status, request) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsFor(request) },
+  });
+}
+
+async function handleWaitlist(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body) return jsonCors({ error: "bad_request" }, 400, request);
+
+  // Honeypot: a hidden field real users never fill. If it's set, silently accept
+  // (so the bot thinks it worked) but store nothing.
+  if (typeof body.hp === "string" && body.hp.trim() !== "") {
+    return jsonCors({ ok: true }, 200, request);
+  }
+
+  const email = (typeof body.email === "string" ? body.email : "").trim().toLowerCase();
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return jsonCors({ error: "invalid_email" }, 400, request);
+  }
+
+  if (env.RL) {
+    // Per-IP flood guard: at most 10 signups/minute from one address.
+    const ip = request.headers.get("CF-Connecting-IP") || "0.0.0.0";
+    const minute = Math.floor(Date.now() / 60000);
+    if ((await incr(env, `wl:rl:${ip}:${minute}`, 120)) > 10) {
+      return jsonCors({ error: "rate_limited" }, 429, request);
+    }
+
+    const key = `wl:${email}`;
+    if (!(await env.RL.get(key))) {
+      const ref = (typeof body.ref === "string" ? body.ref : "site").slice(0, 40);
+      await env.RL.put(key, JSON.stringify({ ts: Date.now(), ref })); // no TTL: keep it
+      const c = parseInt((await env.RL.get("wl:count")) || "0", 10) + 1;
+      await env.RL.put("wl:count", String(c));
+    }
+  }
+
+  return jsonCors({ ok: true }, 200, request);
 }
 
 // ---- Rate limiting + spend cap (KV, best-effort) ----------------------------
