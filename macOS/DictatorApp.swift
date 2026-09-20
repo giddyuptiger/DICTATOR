@@ -363,7 +363,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 return
             }
             lastTranscript = out.text
-            inserter.insert(out.text)
+            // Pasting uses a synthetic Cmd-V, which needs Accessibility. Reinstalling
+            // or moving the app commonly resets that grant, and the paste then fails
+            // SILENTLY — worse, MacTextInserter restores the clipboard afterward, so
+            // the dictation vanishes with no explanation (exactly the "animation shows
+            // but nothing pastes" report). Guard it: only auto-paste when trusted;
+            // otherwise leave the text on the clipboard (so it's never lost) and tell
+            // the user how to fix it.
+            if AXIsProcessTrusted() {
+                inserter.insert(out.text)
+            } else {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(out.text, forType: .string)
+                needsAccessibility = true
+                watchForAccessibility()
+                status = "Allow Dictator in Accessibility, then Restart Dictator. Your text is on the clipboard — press ⌘V to paste it."
+                indicator.hide()
+                return
+            }
             lastTiming = String(format: "%.0f ms transcribe · %.0f ms cleanup",
                                 out.transcribeTime * 1000, out.cleanupTime * 1000)
             indicator.hide()

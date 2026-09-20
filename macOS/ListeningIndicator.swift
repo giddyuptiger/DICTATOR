@@ -71,7 +71,10 @@ final class ListeningIndicator {
         p.hidesOnDeactivate = false
         p.isOpaque = false
         p.backgroundColor = .clear
-        p.hasShadow = true
+        // No window shadow: the window is a rectangle, so its shadow drew a faint
+        // square outline around the rounded pill. The frosted material gives the
+        // pill enough contrast on its own.
+        p.hasShadow = false
         p.ignoresMouseEvents = true
         p.level = .statusBar
         p.collectionBehavior = [.canJoinAllSpaces, .stationary,
