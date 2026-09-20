@@ -32,12 +32,28 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-15 ships Xcode 16, which can read the project format (77) that
+    # xcodegen emits. macos-14's default Xcode 15.4 cannot, and fails at
+    # -resolvePackageDependencies with "future Xcode project file format (77)".
+    # We still pin the Xcode below so a runner-image change can't silently move
+    # us back onto an older default.
+    runs-on: macos-15
     env:
       SCHEME: "Dictator (Mac)"
       TEAM_ID: W9K8HB89TY
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select Xcode 16+
+        run: |
+          set -euo pipefail
+          # Pick the newest installed Xcode 16 or later, then pin it. If the glob
+          # matches nothing we leave xcode-select's default in place.
+          latest=$(ls -d /Applications/Xcode_16*.app /Applications/Xcode_1[7-9]*.app 2>/dev/null | sort -V | tail -1 || true)
+          if [ -n "${latest:-}" ]; then
+            sudo xcode-select -s "$latest"
+          fi
+          xcodebuild -version
 
       - name: Install XcodeGen
         run: brew install xcodegen
