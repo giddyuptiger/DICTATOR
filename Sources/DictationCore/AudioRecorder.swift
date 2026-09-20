@@ -119,9 +119,13 @@ public final class AudioRecorder: @unchecked Sendable {
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         do {
-            // .record rather than .playAndRecord keeps latency down and avoids
-            // ducking whatever the user is listening to more than necessary.
-            try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
+            // .record (not .playAndRecord) keeps latency down. CRITICAL: use
+            // .mixWithOthers, NOT .duckOthers — .duckOthers explicitly lowers other
+            // apps' audio the whole time we record (the "my music drops while
+            // Dictator listens" bug). .mixWithOthers lets the user's music keep
+            // playing at full volume while we capture over it, which is what people
+            // actually want (and what Wispr does).
+            try session.setCategory(.record, mode: .measurement, options: [.mixWithOthers])
             try session.setPreferredSampleRate(Self.targetSampleRate)
             try session.setPreferredIOBufferDuration(0.02)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
