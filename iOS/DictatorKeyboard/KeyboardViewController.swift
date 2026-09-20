@@ -253,6 +253,7 @@ final class KeyboardViewController: UIInputViewController {
         applyTheme()
         updateHeight()
         refreshMode()
+        refreshReturnKey()   // the return key's label/colour depends on this field's returnKeyType
         startModeWatch()
     }
 
@@ -295,6 +296,7 @@ final class KeyboardViewController: UIInputViewController {
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         syncShiftToContext()
+        refreshReturnKey()   // focus may have moved to a field with a different returnKeyType
         if (view.overrideUserInterfaceStyle == .dark) != resolveDark() { applyTheme() }
     }
 
@@ -1104,6 +1106,8 @@ final class KeyboardViewController: UIInputViewController {
         space.setTitleColor(palette.keyText, for: .normal)
         let ret = makeSpecial(image: nil, title: returnKeyTitle(), action: #selector(returnTapped))
         ret.accessibilityLabel = returnKeyTitle()
+        returnKey = ret
+        refreshReturnKey()
 
         fourth.addArrangedSubview(planeKey)
         fourth.addArrangedSubview(globeButton)
@@ -1286,6 +1290,25 @@ final class KeyboardViewController: UIInputViewController {
 
     @objc private func returnTapped() {
         textDocumentProxy.insertText("\n")
+    }
+
+    private var returnKey: UIButton?
+
+    /// The system keyboard makes the return key PROMINENT (blue, white text) when
+    /// the field wants an action — Go, Send, Search, Done, etc. — and leaves a plain
+    /// "return" grey. Match that so our key reads as the submit button it is.
+    private func refreshReturnKey() {
+        guard let ret = returnKey else { return }
+        let title = returnKeyTitle()
+        ret.setTitle(title, for: .normal)
+        ret.accessibilityLabel = title
+        if textDocumentProxy.returnKeyType == .default {
+            ret.backgroundColor = palette.special
+            ret.setTitleColor(palette.specialText, for: .normal)
+        } else {
+            ret.backgroundColor = .systemBlue
+            ret.setTitleColor(.white, for: .normal)
+        }
     }
 
     /// The return key says what it will do, like the system keyboard does. A
