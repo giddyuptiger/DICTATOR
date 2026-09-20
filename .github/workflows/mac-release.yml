@@ -44,6 +44,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Diagnostic: prints only the LENGTH of each secret, never its value, so we
+      # can tell "secret not visible to this run" (length 0) from "secret present
+      # but malformed" (length > 0). Safe to leave in — lengths leak nothing.
+      - name: Check secret presence (lengths only)
+        env:
+          A: ${{ secrets.DEVELOPER_ID_CERT_P12_BASE64 }}
+          B: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+          C: ${{ secrets.AC_API_KEY_ID }}
+          D: ${{ secrets.AC_API_ISSUER_ID }}
+          E: ${{ secrets.AC_API_KEY_P8_BASE64 }}
+        run: |
+          echo "DEVELOPER_ID_CERT_P12_BASE64 length: ${#A}"
+          echo "DEVELOPER_ID_CERT_PASSWORD   length: ${#B}"
+          echo "AC_API_KEY_ID                length: ${#C}"
+          echo "AC_API_ISSUER_ID             length: ${#D}"
+          echo "AC_API_KEY_P8_BASE64         length: ${#E}"
+
       - name: Select Xcode 16+
         run: |
           set -euo pipefail
