@@ -125,7 +125,9 @@ jobs:
           mkdir -p "$STAGE"
           cp -R "$APP" "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
-          DMG="$RUNNER_TEMP/Dictator-$VERSION.dmg"
+          # Stable name (NOT versioned) so the website's
+          # releases/latest/download/Dictator.dmg link always resolves.
+          DMG="$RUNNER_TEMP/Dictator.dmg"
           hdiutil create -volname "Dictator" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
           echo "DMG_PATH=$DMG" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
