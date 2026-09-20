@@ -10,7 +10,13 @@
 	<array>
 		<string>group.design.irons.dictator</string>
 	</array>
-	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
-	<string>$(TeamIdentifierPrefix)design.irons.dictator</string>
+	<!-- iCloud key-value store (personal-dictionary sync) is intentionally NOT
+	     declared here. This app ships as a Developer ID / notarized DMG with
+	     manual signing and no provisioning profile, and iCloud requires a profile
+	     with the iCloud capability, which fails the archive. The shared code
+	     (PersonalDictionary) degrades gracefully to the local App Group store
+	     when the KVS is unavailable, so vocabulary still works on the Mac; it
+	     just doesn't sync over iCloud. The iOS app keeps iCloud sync via its App
+	     Store provisioning. -->
 </dict>
 </plist>
