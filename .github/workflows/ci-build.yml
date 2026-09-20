@@ -58,6 +58,10 @@ jobs:
 
       # iOS: build the app AND the embedded keyboard extension for the simulator.
       # A simulator destination needs no code signing.
+      # arm64 only: the runner is Apple Silicon and FluidAudio's
+      # NemoTextProcessing.xcframework ships an arm64-only simulator slice, so a
+      # universal (x86_64+arm64) simulator link fails at Ld. Real devices and
+      # TestFlight are arm64, so an arm64 compile check is representative.
       - name: Build iOS (app + keyboard)
         run: |
           set -o pipefail
@@ -67,6 +71,7 @@ jobs:
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -configuration Debug \
+            EXCLUDED_ARCHS=x86_64 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
       # macOS: compile the Mac app without signing.
