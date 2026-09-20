@@ -988,8 +988,17 @@ final class KeyboardViewController: UIInputViewController {
     // ========================================================================
 
     private enum Plane {
-        case letters, numbers, symbols
+        case letters, numbers, symbols, emoji
     }
+
+    /// A curated grid of the most-used emoji, so one tap on the emoji key gets you
+    /// straight to them instead of digging through the numbers/symbols planes.
+    private let emojiRows: [[String]] = [
+        ["😂","❤️","🤣","👍","😭","🙏","😘","🥰"],
+        ["😍","😊","🎉","🔥","😁","💯","🤔","👏"],
+        ["😅","🙂","🥺","😎","🙌","🥳","😉","👌"],
+        ["😔","👀","🤷","💪","👋","🎂","✅","😢"],
+    ]
 
     private enum Shift {
         case off, once, locked
@@ -1029,12 +1038,16 @@ final class KeyboardViewController: UIInputViewController {
                 ["_","\\","|","~","<",">","€","£","¥","•"],
                 [".",",","?","!","'"]
             ]
+        case .emoji:
+            return []   // the emoji plane builds its own grid (see buildEmojiPlane)
         }
     }
 
     private func rebuildKeys() {
         rowsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         letterKeys.removeAll()
+
+        if plane == .emoji { buildEmojiPlane(); return }
 
         let layout = rows(for: plane)
 
@@ -1093,6 +1106,14 @@ final class KeyboardViewController: UIInputViewController {
             action: #selector(planeSwitchTapped)
         )
         planeKey.accessibilityLabel = plane == .letters ? "Numbers and punctuation" : "Letters"
+        // Emoji key replaces the redundant in-keyboard globe (iOS shows its own
+        // keyboard-switch key). Tap -> emoji grid; long-press still switches
+        // keyboards, so that function is never lost.
+        let emojiKey = makeSpecial(image: "face.smiling", title: nil, action: #selector(emojiTapped))
+        emojiKey.accessibilityLabel = "Emoji"
+        emojiKey.addGestureRecognizer(
+            UILongPressGestureRecognizer(target: self, action: #selector(emojiLongPress(_:)))
+        )
         // Space on touch-DOWN, for the same reason as the letters: fast typing
         // rolls off the space bar before a clean touchUpInside, dropping the space
         // (this is what turned "chat tomorrow" into "chattomorrow").
@@ -1110,15 +1131,51 @@ final class KeyboardViewController: UIInputViewController {
         refreshReturnKey()
 
         fourth.addArrangedSubview(planeKey)
-        fourth.addArrangedSubview(globeButton)
+        fourth.addArrangedSubview(emojiKey)
         fourth.addArrangedSubview(space)
         fourth.addArrangedSubview(ret)
         planeKey.widthAnchor.constraint(equalTo: fourth.widthAnchor, multiplier: 0.13).isActive = true
-        globeButton.widthAnchor.constraint(equalTo: fourth.widthAnchor, multiplier: 0.12).isActive = true
+        emojiKey.widthAnchor.constraint(equalTo: fourth.widthAnchor, multiplier: 0.12).isActive = true
         ret.widthAnchor.constraint(equalTo: fourth.widthAnchor, multiplier: 0.22).isActive = true
         rowsStack.addArrangedSubview(fourth)
 
         refreshCaps()
+    }
+
+    /// The emoji plane: rows of common emoji built with the normal key mechanism
+    /// (tapping one inserts it via keyDown), plus a control row with ABC (back to
+    /// letters), the keyboard-switch globe, space, and delete.
+    private func buildEmojiPlane() {
+        for row in emojiRows {
+            rowsStack.addArrangedSubview(keyRow(row))
+        }
+
+        let ctrl = UIStackView()
+        ctrl.axis = .horizontal
+        ctrl.spacing = 6
+        ctrl.distribution = .fill
+
+        let abc = makeSpecial(image: nil, title: "ABC", action: #selector(emojiBackTapped))
+        abc.accessibilityLabel = "Letters"
+        let space = makeSpecial(image: nil, title: "space", action: nil)
+        space.addTarget(self, action: #selector(spaceTapped), for: .touchDown)
+        space.accessibilityLabel = "Space"
+        space.tag = KeyHitStack.spaceTag
+        space.backgroundColor = palette.key
+        space.setTitleColor(palette.keyText, for: .normal)
+        let del = makeSpecial(image: "delete.left", title: nil, action: nil)
+        del.accessibilityLabel = "Delete"
+        del.addTarget(self, action: #selector(deleteDown), for: .touchDown)
+        del.addTarget(self, action: #selector(deleteUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+
+        ctrl.addArrangedSubview(abc)
+        ctrl.addArrangedSubview(globeButton)
+        ctrl.addArrangedSubview(space)
+        ctrl.addArrangedSubview(del)
+        abc.widthAnchor.constraint(equalTo: ctrl.widthAnchor, multiplier: 0.15).isActive = true
+        globeButton.widthAnchor.constraint(equalTo: ctrl.widthAnchor, multiplier: 0.12).isActive = true
+        del.widthAnchor.constraint(equalTo: ctrl.widthAnchor, multiplier: 0.15).isActive = true
+        rowsStack.addArrangedSubview(ctrl)
     }
 
     private var shiftKey: UIButton?
@@ -1271,6 +1328,20 @@ final class KeyboardViewController: UIInputViewController {
 
     @objc private func planeToggleTapped() {
         plane = (plane == .numbers) ? .symbols : .numbers
+    }
+
+    @objc private func emojiTapped() {
+        plane = .emoji
+    }
+
+    @objc private func emojiBackTapped() {
+        plane = .letters
+    }
+
+    /// Long-press the emoji key to switch keyboards — the globe's old job, kept
+    /// reachable now that the emoji key sits where the globe used to.
+    @objc private func emojiLongPress(_ g: UILongPressGestureRecognizer) {
+        if g.state == .began { advanceToNextInputMode() }
     }
 
     @objc private func spaceTapped() {
