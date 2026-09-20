@@ -125,8 +125,12 @@ public struct PersonalDictionary: Codable, Sendable {
     private static let storageKey = "personalDictionary"
 
     public static func load() -> PersonalDictionary {
-        guard let defaults = UserDefaults(suiteName: appGroup),
-              let data = defaults.data(forKey: storageKey),
+        // `?? .standard`: the Mac target carries no App Group entitlement (a
+        // Developer ID build cannot embed the profile it would need), so the
+        // suite is unavailable there; standard defaults persist the same for the
+        // single Mac process. iOS still resolves the shared group suite.
+        let defaults = UserDefaults(suiteName: appGroup) ?? .standard
+        guard let data = defaults.data(forKey: storageKey),
               let decoded = try? JSONDecoder().decode(PersonalDictionary.self, from: data)
         else {
             return PersonalDictionary()
@@ -135,8 +139,8 @@ public struct PersonalDictionary: Codable, Sendable {
     }
 
     public func save() {
-        guard let defaults = UserDefaults(suiteName: Self.appGroup),
-              let data = try? JSONEncoder().encode(self) else { return }
+        let defaults = UserDefaults(suiteName: Self.appGroup) ?? .standard
+        guard let data = try? JSONEncoder().encode(self) else { return }
         defaults.set(data, forKey: Self.storageKey)
 
         // Cross-device sync. Cheap, no CloudKit schema to manage, and a dictionary

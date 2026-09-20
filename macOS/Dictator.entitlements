@@ -6,17 +6,15 @@
 	<false/>
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
-	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>group.design.irons.dictator</string>
-	</array>
-	<!-- iCloud key-value store (personal-dictionary sync) is intentionally NOT
-	     declared here. This app ships as a Developer ID / notarized DMG with
-	     manual signing and no provisioning profile, and iCloud requires a profile
-	     with the iCloud capability, which fails the archive. The shared code
-	     (PersonalDictionary) degrades gracefully to the local App Group store
-	     when the KVS is unavailable, so vocabulary still works on the Mac; it
-	     just doesn't sync over iCloud. The iOS app keeps iCloud sync via its App
-	     Store provisioning. -->
+	<!-- App Groups and iCloud key-value store are intentionally NOT declared on
+	     the Mac target. Both require an embedded provisioning profile, which the
+	     Developer ID / notarized-DMG pipeline (manual signing, no profile) cannot
+	     supply, and each one fails the archive with "requires a provisioning
+	     profile". The Mac app is a single non-sandboxed process with no extension
+	     to share a group container with, so the shared code (SharedStore,
+	     PersonalDictionary, ToneProfile) falls back to standard UserDefaults on
+	     macOS, which persists identically. The only lost feature is iCloud
+	     cross-device vocabulary sync; the iOS app keeps App Groups (keyboard↔app)
+	     and iCloud sync via its App Store provisioning. -->
 </dict>
 </plist>

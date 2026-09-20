@@ -16,7 +16,13 @@ public enum SharedStore {
     /// every time, which is what makes the handshake reliable. The cost is a
     /// container lookup; the handshake is worth more.
     private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: appGroup)
+        // On iOS the App Group is the shared channel between the keyboard and the
+        // app. The Mac target carries no group entitlement (it would need a
+        // provisioning profile the Developer ID build has no way to supply) and
+        // has no extension to share with, so fall back to standard defaults,
+        // which persist just the same for a single non-sandboxed process. Matches
+        // ToneProfile.store.
+        UserDefaults(suiteName: appGroup) ?? .standard
     }
 
     private enum Key {
