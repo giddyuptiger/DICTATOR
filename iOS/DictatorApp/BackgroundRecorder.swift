@@ -144,30 +144,32 @@ final class AudioEngineHost: @unchecked Sendable {
 
         let session = AVAudioSession.sharedInstance()
         do {
-            // IDLE audio policy: .mixWithOthers and nothing else. A .playAndRecord
-            // session normally INTERRUPTS other audio, so without this, turning
-            // Dictator on (or a rebuild) would pause the user's music and not
-            // resume it. .mixWithOthers lets our session coexist so their audio is
-            // untouched while Dictator is merely warm; the silent keep-alive mixes
-            // in silently.
+            // AUDIO POLICY. Three options, each load-bearing:
             //
-            // NO .defaultToSpeaker: it forces output to the phone speaker, which
-            // yanked car/Bluetooth music onto the phone. Without it, audio stays on
-            // whatever route the user is already on (car, AirPods, speaker).
+            // .mixWithOthers — a .playAndRecord session normally INTERRUPTS other
+            //   audio; this lets ours coexist so the user's music keeps playing.
             //
-            // NO Bluetooth HFP: it would force AirPods to call-quality mono the
-            // whole time, and its route switches fed the interruption-driven tap
-            // crash. Dictation uses the phone mic.
+            // .defaultToSpeaker — THE DUCKING FIX. Without it, a .playAndRecord
+            //   session drops output to the low-volume RECEIVER route, and iOS
+            //   pulls all other media down to match ("my music goes quiet while
+            //   Dictator is on"). Pinning the speaker/media route keeps other apps
+            //   at full volume — the documented workaround for the playAndRecord
+            //   media-attenuation behaviour. (It was removed earlier because it
+            //   alone yanked Bluetooth music onto the phone; .allowBluetoothA2DP
+            //   below fixes that.)
             //
-            // We stay on .mixWithOthers the WHOLE time, including while capturing:
-            // Dictator records over the user's music rather than ducking it. Not
-            // touching other apps' audio is what users actually want (it's how
-            // Wispr Flow behaves), and it removed a whole family of "music stayed
-            // quiet / restarted / hijacked the route" bugs.
+            // .allowBluetoothA2DP — keep Bluetooth/car audio on its high-quality
+            //   music route (A2DP) rather than falling to call-quality HFP mono,
+            //   so .defaultToSpeaker doesn't hijack the user's headphones/car.
+            //   (A2DP, NOT .allowBluetooth/HFP, which would force mono.)
+            //
+            // Net: warm mic + other audio untouched at full volume, on whatever
+            // route the user is already on. Validate on-device across speaker,
+            // AirPods, and CarPlay — this is the music-ducking rework.
             try session.setCategory(
                 .playAndRecord,
                 mode: .default,
-                options: [.mixWithOthers]
+                options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP]
             )
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
@@ -1121,7 +1123,8 @@ public final class BackgroundRecorder: ObservableObject {
     private func micAvailableNow() -> Bool {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers])
+            try session.setCategory(.playAndRecord, mode: .default,
+                                    options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
             return true
         } catch {
