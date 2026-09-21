@@ -149,19 +149,48 @@ jobs:
             --wait
           xcrun stapler staple "$APP"
 
-      - name: Build DMG
+      - name: Build DMG (branded)
         run: |
           set -euo pipefail
           APP="$RUNNER_TEMP/export/Dictator.app"
           VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist" 2>/dev/null || echo dev)
-          STAGE="$RUNNER_TEMP/dmg"
-          mkdir -p "$STAGE"
-          cp -R "$APP" "$STAGE/"
-          ln -s /Applications "$STAGE/Applications"
           # Stable name (NOT versioned) so the website's
           # releases/latest/download/Dictator.dmg link always resolves.
           DMG="$RUNNER_TEMP/Dictator.dmg"
-          hdiutil create -volname "Dictator" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          rm -f "$DMG"
+
+          # HiDPI-aware background: a TIFF holding the 1x (660x400) and 2x
+          # (1320x800) art, so the window is crisp on Retina and correctly sized
+          # elsewhere. Fall back to the 1x PNG if the 2x asset is missing.
+          BG="design/dmg-background.png"
+          if [ -f "design/dmg-background@2x.png" ]; then
+            tiffutil -cathidpicheck design/dmg-background.png "design/dmg-background@2x.png" \
+              -out "$RUNNER_TEMP/dmg-bg.tiff" && BG="$RUNNER_TEMP/dmg-bg.tiff"
+          fi
+
+          # dmgbuild writes the background + icon layout into the DMG itself (no
+          # Finder/AppleScript), so it works on this headless runner. Prefer pipx;
+          # fall back to a --user pip install.
+          if command -v pipx >/dev/null 2>&1; then
+            DMGBUILD="pipx run dmgbuild"
+          else
+            python3 -m pip install --user --quiet dmgbuild \
+              || python3 -m pip install --user --quiet --break-system-packages dmgbuild
+            export PATH="$(python3 -m site --user-base)/bin:$PATH"
+            DMGBUILD="dmgbuild"
+          fi
+
+          # If styling fails for any reason, fall back to a plain (unstyled) DMG so
+          # a release is never blocked by cosmetics.
+          if $DMGBUILD -s scripts/dmg_settings.py -D app="$APP" -D bg="$BG" "Dictator" "$DMG"; then
+            echo "Built branded DMG via dmgbuild"
+          else
+            echo "dmgbuild failed — falling back to a plain hdiutil DMG"
+            STAGE="$RUNNER_TEMP/dmg"; mkdir -p "$STAGE"
+            cp -R "$APP" "$STAGE/"; ln -s /Applications "$STAGE/Applications"
+            hdiutil create -volname "Dictator" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          fi
+
           echo "DMG_PATH=$DMG" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
