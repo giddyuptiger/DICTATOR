@@ -229,9 +229,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
         engineLabel = label
 
+        // Cleanup provider: the user's own Groq key if they set one (BYOK),
+        // otherwise route through the backend proxy — the SAME as iOS. Without this
+        // the Mac did NO model cleanup unless a key was set, so text modes
+        // (Shakespeare, Patois) never transformed and filler/format cleanup was
+        // weak or absent for everyone who hadn't entered a key.
+        let cleanup: CleanupProvider
+        if let key, !key.isEmpty {
+            cleanup = GroqCleanup(apiKey: key)
+        } else {
+            cleanup = BackendCleanup()
+        }
+
         let session = DictationSession(
             speech: speech,
-            cleanupProvider: key.flatMap { $0.isEmpty ? nil : GroqCleanup(apiKey: $0) },
+            cleanupProvider: cleanup,
             dictionary: dictionary
         )
         self.session = session
