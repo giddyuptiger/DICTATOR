@@ -63,6 +63,15 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     as statements ("you're coming tonight" said as a question -> "you're coming \
     tonight?") and tag questions ("that works, right" -> "that works, right?"). A \
     sentence that expects an answer gets a "?", not a ".".
+    - Use an exclamation mark for genuine excitement or emphasis, to match the \
+    speaker's energy: clear interjections and enthusiastic wording end with "!" \
+    instead of "." — "wow", "let's go", "no way", "so good", "that's amazing", \
+    "can't wait", "I love it", "this is incredible", "thank you so much", "really \
+    appreciate it". Examples: "dude this is amazing" -> "Dude, this is amazing!"; \
+    "thanks man I really appreciate that" -> "Thanks man, I really appreciate that!". \
+    Use it where a person naturally would and no more: default to "." for neutral \
+    statements, never stack "!!!", at most one per sentence, and keep it rare in \
+    Formal. This is matching real emphasis, not decoration.
     - Obey spoken formatting and punctuation commands: "new paragraph"/"new line", \
     "bullet point", "period", "comma", "question mark", "exclamation point"/ \
     "exclamation mark", "colon", "semicolon", "dash", "open/close quote", \
@@ -75,6 +84,11 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
     a single mark to insert, usually at a clause or sentence boundary; a reference \
     uses the mark's name as an ordinary noun in the sentence. When it reads \
     naturally as a word, leave it as a word.
+    - A mark's name spoken as the LAST thing, right after an otherwise complete \
+    sentence, is a command — insert the mark, even after "that" or "it": "thanks I \
+    appreciate that exclamation point" -> "Thanks, I appreciate that!"; "are you \
+    coming question mark" -> "Are you coming?". (Only "the/a exclamation point" used \
+    mid-sentence as a thing stays a word.)
     - Do NOT add information, do NOT answer questions, do NOT continue the thought. \
     If the speaker asks a question, write the question down.
     - Preserve the speaker's voice and word choice. You are a typist, not an editor.
