@@ -312,7 +312,8 @@ async function handleWaitlist(request, env) {
 //      forwarded — never a transcript, never anything user-typed. distinct_id is
 //      the app's random per-install id (SharedStore.deviceID), never an email.
 // Requires two Worker vars: POSTHOG_KEY (the phc_ project key) and, optionally,
-// POSTHOG_HOST (defaults to EU cloud). If POSTHOG_KEY is unset this no-ops.
+// POSTHOG_HOST (defaults to US cloud, matching the account GRDN/Yonda use). If
+// POSTHOG_KEY is unset this no-ops.
 
 const ALLOWED_EVENTS = new Set([
   "app_opened",
@@ -352,7 +353,7 @@ async function handleEvent(request, env, ctx) {
     }
   }
 
-  const host = env.POSTHOG_HOST || "https://eu.i.posthog.com";
+  const host = env.POSTHOG_HOST || "https://us.i.posthog.com";
   // Best-effort and fire-and-forget: analytics must never block or fail the app.
   ctx.waitUntil(
     fetch(`${host}/capture/`, {
