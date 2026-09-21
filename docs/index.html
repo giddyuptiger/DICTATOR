@@ -61,6 +61,15 @@
   .card p { margin: 0; color: var(--muted); font-size: .96rem; }
   .card .em { color: var(--green); }
 
+  .quotes { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 560px) { .quotes { grid-template-columns: 1fr; } }
+  .quote { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+  .quote.wide { grid-column: 1 / -1; }
+  .quote p { margin: 0 0 12px; color: var(--ink); font-size: 1.06rem; line-height: 1.5; }
+  .quote.wide p { font-size: 1.22rem; }
+  .quote .who { color: var(--muted); font-size: .84rem; }
+  .quote .who b { color: var(--ink); font-weight: 600; }
+
   .modes { text-align: center; color: var(--muted); }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 16px auto 0; max-width: 460px; }
   .chip { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: .9rem; color: var(--ink); background: var(--panel); }
@@ -164,6 +173,24 @@
         <div class="card">
           <h3>It respects your music</h3>
           <p>Records over whatever you're playing — never pauses, ducks, or hijacks your audio.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Early reactions</h2>
+      <div class="quotes">
+        <div class="quote wide">
+          <p>"I'm blown away by how good this is. You've literally changed my life."</p>
+          <div class="who"><b>Rion E.</b> · early user</div>
+        </div>
+        <div class="quote">
+          <p>"Been using it all morning — very fast and easy to use."</p>
+          <div class="who"><b>Rion E.</b></div>
+        </div>
+        <div class="quote">
+          <p>"This is exactly what I needed."</p>
+          <div class="who"><b>Rion E.</b></div>
         </div>
       </div>
     </section>
