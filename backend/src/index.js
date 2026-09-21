@@ -51,6 +51,17 @@ export default {
         return json({ error: "method_not_allowed" }, 405);
       }
 
+      // Anonymous product analytics from the apps, forwarded server-side to
+      // PostHog. Routed through the Worker on purpose: no third-party analytics
+      // SDK ever ships inside the privacy-first app, and the allow-list below
+      // means content/PII can never ride through. Handled BEFORE the Groq cap —
+      // an event is not a Groq call and must not count against that budget.
+      if (url.pathname === "/v1/event") {
+        if (request.method === "OPTIONS") return preflight(request);
+        if (request.method === "POST") return await handleEvent(request, env, ctx);
+        return json({ error: "method_not_allowed" }, 405);
+      }
+
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
       // Global spend circuit-breaker: hard stop if the day's request budget is spent.
@@ -287,6 +298,69 @@ async function handleWaitlist(request, env) {
       await env.RL.put("wl:count", String(c));
     }
   }
+
+  return jsonCors({ ok: true }, 200, request);
+}
+
+// ---- Product analytics (anonymous, allow-listed) ----------------------------
+// The apps POST { event, distinct_id, properties } here and the Worker forwards
+// to PostHog with the project key (kept server-side). Two safety rails:
+//   1. Only event names on ALLOWED_EVENTS are forwarded, so a leaked endpoint
+//      can't be turned into an arbitrary firehose and no free text can ride in
+//      as an event name.
+//   2. Only primitive values under an allow-listed set of property keys are
+//      forwarded — never a transcript, never anything user-typed. distinct_id is
+//      the app's random per-install id (SharedStore.deviceID), never an email.
+// Requires two Worker vars: POSTHOG_KEY (the phc_ project key) and, optionally,
+// POSTHOG_HOST (defaults to EU cloud). If POSTHOG_KEY is unset this no-ops.
+
+const ALLOWED_EVENTS = new Set([
+  "app_opened",
+  "onboarding_completed",
+  "keyboard_full_access_granted",
+  "first_dictation",
+  "dictation_completed",
+  "mode_changed",
+  "engine_changed",
+  "mac_app_launched",
+  "mac_first_dictation",
+]);
+
+const ALLOWED_EVENT_PROPS = ["platform", "app_version", "mode", "engine", "value"];
+
+async function handleEvent(request, env, ctx) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body.event !== "string") {
+    return jsonCors({ error: "bad_request" }, 400, request);
+  }
+
+  const event = body.event.slice(0, 64);
+  // Unknown event -> accept silently (don't help a prober map the allow-list),
+  // but forward nothing. Also no-op if analytics isn't configured.
+  if (!ALLOWED_EVENTS.has(event) || !env.POSTHOG_KEY) {
+    return jsonCors({ ok: true }, 200, request);
+  }
+
+  const distinctId = (typeof body.distinct_id === "string" ? body.distinct_id : "anon").slice(0, 64);
+
+  const props = { $lib: "dictator-app" };
+  if (body.properties && typeof body.properties === "object") {
+    for (const k of ALLOWED_EVENT_PROPS) {
+      const v = body.properties[k];
+      if (typeof v === "string") props[k] = v.slice(0, 64);
+      else if (typeof v === "number" || typeof v === "boolean") props[k] = v;
+    }
+  }
+
+  const host = env.POSTHOG_HOST || "https://eu.i.posthog.com";
+  // Best-effort and fire-and-forget: analytics must never block or fail the app.
+  ctx.waitUntil(
+    fetch(`${host}/capture/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: env.POSTHOG_KEY, event, distinct_id: distinctId, properties: props }),
+    }).catch(() => {})
+  );
 
   return jsonCors({ ok: true }, 200, request);
 }

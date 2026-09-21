@@ -196,6 +196,19 @@ public enum SharedStore {
         set { defaults?.set(newValue, forKey: "deviceID") }
     }
 
+    /// Opt-out product-analytics switch (see `Analytics`). Defaults to false:
+    /// nothing is sent until analytics is deliberately enabled AND disclosed in
+    /// the privacy policy / App Store label.
+    public static var analyticsEnabled: Bool {
+        get { defaults?.bool(forKey: "analyticsEnabled") ?? false }
+        set { defaults?.set(newValue, forKey: "analyticsEnabled") }
+    }
+
+    /// Tiny generic one-time-flag helpers (e.g. the first_dictation marker used by
+    /// `Analytics.trackOnce`).
+    static func boolFlag(_ key: String) -> Bool { defaults?.bool(forKey: key) ?? false }
+    static func setBoolFlag(_ key: String, _ value: Bool) { defaults?.set(value, forKey: key) }
+
     /// One-time flag: whether the previously-seeded embedded Groq key has been
     /// cleared so the install routes through the backend proxy instead.
     public static var keySeedClearedV1: Bool {
