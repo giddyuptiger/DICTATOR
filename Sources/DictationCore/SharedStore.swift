@@ -209,6 +209,21 @@ public enum SharedStore {
     static func boolFlag(_ key: String) -> Bool { defaults?.bool(forKey: key) ?? false }
     static func setBoolFlag(_ key: String, _ value: Bool) { defaults?.set(value, forKey: key) }
 
+    // MARK: - Emoji recents
+
+    /// Most-recently-used emoji for the keyboard's Recents row, newest first.
+    public static var recentEmoji: [String] {
+        get { defaults?.stringArray(forKey: "recentEmoji") ?? [] }
+        set { defaults?.set(Array(newValue.prefix(40)), forKey: "recentEmoji") }
+    }
+
+    /// Record an emoji as just used: move it to the front, de-duplicated, capped.
+    public static func pushRecentEmoji(_ emoji: String) {
+        var list = recentEmoji.filter { $0 != emoji }
+        list.insert(emoji, at: 0)
+        recentEmoji = list
+    }
+
     /// One-time flag: whether the previously-seeded embedded Groq key has been
     /// cleared so the install routes through the backend proxy instead.
     public static var keySeedClearedV1: Bool {

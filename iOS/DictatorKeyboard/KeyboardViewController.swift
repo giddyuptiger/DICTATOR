@@ -36,6 +36,11 @@ final class KeyButton: UIButton {
 /// routed to the closest key instead of falling through. A point inside a real key
 /// still returns that key unchanged.
 final class KeyHitStack: UIStackView {
+    /// When false, the nearest-key snapping below is skipped and hit testing is
+    /// normal. The emoji plane sets this off: its grid is a UICollectionView, and
+    /// snapping a grid tap to the nearest UIControl would steal it for the control
+    /// row's ABC / space / delete buttons.
+    var snapEnabled = true
     /// Marks the space bar so hitTest can lift its hit area upward a touch.
     static let spaceTag = 9901
     /// How far up the space bar's hit area reaches, in points. Covers the gap
@@ -44,6 +49,9 @@ final class KeyHitStack: UIStackView {
     private static let spaceLift: CGFloat = 13
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // Emoji plane: normal hit testing, no nearest-key snapping (see snapEnabled).
+        guard snapEnabled else { return super.hitTest(point, with: event) }
+
         // Only claim touches that land within our own bounds (the key area). A
         // point outside — the mic pill/toolbar above the keys, or the margin below
         // — MUST fall through to its real view. Without this guard the nearest-key
@@ -991,15 +999,6 @@ final class KeyboardViewController: UIInputViewController {
         case letters, numbers, symbols, emoji
     }
 
-    /// A curated grid of the most-used emoji, so one tap on the emoji key gets you
-    /// straight to them instead of digging through the numbers/symbols planes.
-    private let emojiRows: [[String]] = [
-        ["😂","❤️","🤣","👍","😭","🙏","😘","🥰"],
-        ["😍","😊","🎉","🔥","😁","💯","🤔","👏"],
-        ["😅","🙂","🥺","😎","🙌","🥳","😉","👌"],
-        ["😔","👀","🤷","💪","👋","🎂","✅","😢"],
-    ]
-
     private enum Shift {
         case off, once, locked
     }
@@ -1017,6 +1016,13 @@ final class KeyboardViewController: UIInputViewController {
     private var letterKeys: [UIButton] = []
 
     private let rowsStack = KeyHitStack()
+    private lazy var emojiView = makeEmojiView()
+
+    private func makeEmojiView() -> EmojiKeyboardView {
+        let v = EmojiKeyboardView()
+        v.onPick = { [weak self] emoji in self?.insertEmoji(emoji) }
+        return v
+    }
 
     private func rows(for plane: Plane) -> [[String]] {
         switch plane {
@@ -1046,6 +1052,11 @@ final class KeyboardViewController: UIInputViewController {
     private func rebuildKeys() {
         rowsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         letterKeys.removeAll()
+
+        // The emoji plane is one tall grid + a short control row (not equal key
+        // rows), and its grid does its own hit testing.
+        rowsStack.distribution = (plane == .emoji) ? .fill : .fillEqually
+        rowsStack.snapEnabled = (plane != .emoji)
 
         if plane == .emoji { buildEmojiPlane(); return }
 
@@ -1094,7 +1105,8 @@ final class KeyboardViewController: UIInputViewController {
         deleteKey.widthAnchor.constraint(equalTo: shiftKey.widthAnchor).isActive = true
         rowsStack.addArrangedSubview(third)
 
-        // Row 4: plane switch, globe, space, return.
+        // Row 4: plane switch, globe (switch keyboards — keeps Japanese etc.),
+        // emoji, space, return.
         let fourth = UIStackView()
         fourth.axis = .horizontal
         fourth.spacing = 6
@@ -1106,14 +1118,11 @@ final class KeyboardViewController: UIInputViewController {
             action: #selector(planeSwitchTapped)
         )
         planeKey.accessibilityLabel = plane == .letters ? "Numbers and punctuation" : "Letters"
-        // Emoji key replaces the redundant in-keyboard globe (iOS shows its own
-        // keyboard-switch key). Tap -> emoji grid; long-press still switches
-        // keyboards, so that function is never lost.
+        // The emoji key opens OUR in-keyboard emoji keyboard (a real categorized
+        // picker), so it never switches away to another keyboard. Keyboard
+        // switching (Japanese, etc.) lives on its own globe key beside it.
         let emojiKey = makeSpecial(image: "face.smiling", title: nil, action: #selector(emojiTapped))
         emojiKey.accessibilityLabel = "Emoji"
-        emojiKey.addGestureRecognizer(
-            UILongPressGestureRecognizer(target: self, action: #selector(emojiLongPress(_:)))
-        )
         // Space on touch-DOWN, for the same reason as the letters: fast typing
         // rolls off the space bar before a clean touchUpInside, dropping the space
         // (this is what turned "chat tomorrow" into "chattomorrow").
@@ -1131,24 +1140,26 @@ final class KeyboardViewController: UIInputViewController {
         refreshReturnKey()
 
         fourth.addArrangedSubview(planeKey)
+        fourth.addArrangedSubview(globeButton)
         fourth.addArrangedSubview(emojiKey)
         fourth.addArrangedSubview(space)
         fourth.addArrangedSubview(ret)
-        planeKey.widthAnchor.constraint(equalTo: fourth.widthAnchor, multiplier: 0.13).isActive = true
-        emojiKey.widthAnchor.constraint(equalTo: fourth.widthAnchor, multiplier: 0.12).isActive = true
-        ret.widthAnchor.constraint(equalTo: fourth.widthAnchor, multiplier: 0.22).isActive = true
+        planeKey.widthAnchor.constraint(equalTo: fourth.widthAnchor, multiplier: 0.12).isActive = true
+        globeButton.widthAnchor.constraint(equalTo: fourth.widthAnchor, multiplier: 0.10).isActive = true
+        emojiKey.widthAnchor.constraint(equalTo: fourth.widthAnchor, multiplier: 0.10).isActive = true
+        ret.widthAnchor.constraint(equalTo: fourth.widthAnchor, multiplier: 0.20).isActive = true
         rowsStack.addArrangedSubview(fourth)
 
         refreshCaps()
     }
 
-    /// The emoji plane: rows of common emoji built with the normal key mechanism
-    /// (tapping one inserts it via keyDown), plus a control row with ABC (back to
-    /// letters), the keyboard-switch globe, space, and delete.
+    /// The emoji plane: our full categorized emoji keyboard (EmojiKeyboardView)
+    /// filling the key area, plus a short control row with ABC (back to letters),
+    /// space, and delete. Tapping an emoji inserts it and never switches keyboards.
     private func buildEmojiPlane() {
-        for row in emojiRows {
-            rowsStack.addArrangedSubview(keyRow(row))
-        }
+        emojiView.reload()
+        emojiView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        rowsStack.addArrangedSubview(emojiView)   // fills the vertical space
 
         let ctrl = UIStackView()
         ctrl.axis = .horizontal
@@ -1169,12 +1180,11 @@ final class KeyboardViewController: UIInputViewController {
         del.addTarget(self, action: #selector(deleteUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
 
         ctrl.addArrangedSubview(abc)
-        ctrl.addArrangedSubview(globeButton)
         ctrl.addArrangedSubview(space)
         ctrl.addArrangedSubview(del)
-        abc.widthAnchor.constraint(equalTo: ctrl.widthAnchor, multiplier: 0.15).isActive = true
-        globeButton.widthAnchor.constraint(equalTo: ctrl.widthAnchor, multiplier: 0.12).isActive = true
+        abc.widthAnchor.constraint(equalTo: ctrl.widthAnchor, multiplier: 0.20).isActive = true
         del.widthAnchor.constraint(equalTo: ctrl.widthAnchor, multiplier: 0.15).isActive = true
+        ctrl.heightAnchor.constraint(equalToConstant: 44).isActive = true
         rowsStack.addArrangedSubview(ctrl)
     }
 
@@ -1338,10 +1348,10 @@ final class KeyboardViewController: UIInputViewController {
         plane = .letters
     }
 
-    /// Long-press the emoji key to switch keyboards — the globe's old job, kept
-    /// reachable now that the emoji key sits where the globe used to.
-    @objc private func emojiLongPress(_ g: UILongPressGestureRecognizer) {
-        if g.state == .began { advanceToNextInputMode() }
+    /// Insert a tapped emoji. Recents are recorded inside EmojiKeyboardView.
+    private func insertEmoji(_ emoji: String) {
+        textDocumentProxy.insertText(emoji)
+        lastKeyTime = Date()
     }
 
     @objc private func spaceTapped() {
@@ -1554,6 +1564,9 @@ final class KeyboardViewController: UIInputViewController {
         undoButton.tintColor = palette.specialText
         redoButton.backgroundColor = palette.special
         redoButton.tintColor = palette.specialText
+        emojiView.glyphTint = palette.keyText
+        emojiView.stripBackground = palette.board
+        emojiView.selectedTabBackground = palette.special
         rebuildKeys()
         render()
     }
