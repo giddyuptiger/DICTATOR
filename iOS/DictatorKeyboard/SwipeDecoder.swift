@@ -53,7 +53,12 @@ final class SwipeDecoder {
     private static let locationWeight = 1.0
     private static let locationTunnel = 0.65
     private static let lengthWeight = 0.25
-    private static let frequencyWeight = 0.18
+    /// Penalty, in key widths, for a candidate whose first letter is not the key
+    /// the touch-down hit-tested to (see `decode(startLetter:)`).
+    private static let startKeyPenalty = 0.6
+    /// Stronger than the first cut (0.18): on real thumbs the losers were junk
+    /// look-alikes ("osu" over "okay"), and the simulator's sweep peaked here.
+    private static let frequencyWeight = 0.30
 
     private let lock = NSLock()
     private var entries: [Entry] = []
@@ -93,8 +98,15 @@ final class SwipeDecoder {
     ///   - centers: the centre of each letter key ("a"..."z") on screen.
     ///   - keyWidth: the width of one letter key, used to scale every tolerance.
     /// - Returns: the best word, or nil if nothing plausible matched.
-    func decode(path: [CGPoint], centers: [Character: CGPoint], keyWidth: CGFloat) -> String? {
+    ///   - startLetter: the letter of the key the touch-down HIT-TESTED to, if
+    ///     known. That is exactly what a tap would have typed, and people are
+    ///     calibrated to it, so a candidate starting with any other letter pays a
+    ///     penalty. This is what separates "is" from "us" and "feature" from
+    ///     "gesture" when the finger lands near a key edge.
+    func decode(path: [CGPoint], centers: [Character: CGPoint], keyWidth: CGFloat,
+                startLetter: Character? = nil) -> String? {
         guard path.count >= 2, keyWidth > 0 else { return nil }
+        let startIndex = startLetter.flatMap { Self.index(of: $0) }
         loadIfNeeded()
         lock.lock(); defer { lock.unlock() }
         guard !entries.isEmpty else { return nil }
@@ -170,9 +182,11 @@ final class SwipeDecoder {
                 let idealLength = Self.length(of: ideal)
                 let lengthPenalty = abs(log((drawnLength + 0.5 * kw) / (idealLength + 0.5 * kw)))
 
+                let startMismatch = (startIndex != nil && startIndex != f) ? Self.startKeyPenalty * kw : 0
                 let score = shape
                     + Self.endpointWeight * endpoints
                     + Self.locationWeight * location
+                    + startMismatch
                     + Self.lengthWeight * kw * lengthPenalty
                     + Self.frequencyWeight * kw * log10(Double(rank) + 1)
 

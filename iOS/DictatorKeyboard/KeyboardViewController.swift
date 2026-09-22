@@ -1333,6 +1333,15 @@ final class KeyboardViewController: UIInputViewController {
         // per-keystroke stall a normal keyboard never has) and showPreview() (a
         // full convert/frame/bringSubviewToFront layout pass per press).
         if let t = sender.title(for: .normal) {
+            // A letter tapped right after a SWIPED word gets a space in front, as
+            // on Apple's keyboard: swipe "the", tap "iOS" -> "the iOS", not
+            // "theiOS". Only after a swipe (lastSwipedInsert is nil otherwise, so
+            // this costs a nil check on the hot path), only for letters, and only
+            // when the text does not already end in whitespace.
+            if lastSwipedInsert != nil, t.count == 1, t.first?.isLetter == true,
+               let last = textDocumentProxy.documentContextBeforeInput?.last, !last.isWhitespace {
+                textDocumentProxy.insertText(" ")
+            }
             textDocumentProxy.insertText(t)
             if shift == .once { shift = .off }
         }
@@ -1859,13 +1868,16 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
         let wasActive = glide.active
         let points = glide.points
         let shiftAtStart = glide.shiftAtStart
+        // The key the touch-down hit-tested to: what a tap would have typed.
+        let startLetter = glide.startKey?.title(for: .normal)?.lowercased().first
         glide = GlideState()
         guard wasActive else { return }
         fadeOutTrail()
         guard commit else { return }
         let centres = letterCentres()
         let keyWidth = letterKeyWidth()
-        let word = SwipeDecoder.shared.decode(path: points, centers: centres, keyWidth: keyWidth)
+        let word = SwipeDecoder.shared.decode(path: points, centers: centres, keyWidth: keyWidth,
+                                              startLetter: startLetter)
         logSwipe(points: points, word: word, centres: centres, keyWidth: keyWidth)
         guard let word else { return }
         insertSwiped(word, shiftAtStart: shiftAtStart)

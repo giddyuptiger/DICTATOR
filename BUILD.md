@@ -382,6 +382,28 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.114 — swipe: spaces after a swiped word, start-key prior, cleaner lexicon (2026-09-22)
+
+Second and third real-device sentences. First one: 7 of 10 words right and
+every miss an adjacent-key confusion (is→us, swipe→store, feature→gesture —
+f/g and a/s are neighbours). Second one exposed a bug that was ours: after a
+SWIPED word, tapping letters ran them together ("likei", "theios") — Apple's
+keyboard puts a space between a swiped word and the next typed letter. Fixed
+in keyDown (a nil check on the hot path; the space is inserted only right
+after a swipe, only for letters, only when the text does not already end in
+whitespace). Junk look-alikes were also winning ("osu" over "okay", "seite"
+over "swipe", "terri" over "trying").
+
+Three decoder changes: (1) a start-key prior — the key the touch-down
+hit-tested to is exactly what a tap would have typed, so candidates that start
+elsewhere pay 0.6 key widths; (2) the frequency prior 0.18 → 0.30 (the
+simulator's sweep peaked there: 88% moderate, 78% hard, 84% with thumb offset
+and undershoot); (3) the lexicon is now built by scripts/build_swipe_lexicon.py
+(sources and rules documented there): top 8k of the web and subtitle lists,
+plus words in both, plus an app-domain allowlist ("swipe" is only in the
+subtitles list, at rank 14,646), minus contraction stems and a name/junk
+blocklist — 18.1k entries.
+
 ### 0.1.113 — App Review fixes for the 1.0 (122) rejection (2026-09-22)
 
 Two findings. **Guideline 5.1.1(iv)** (permission requests): the onboarding
