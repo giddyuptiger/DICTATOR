@@ -48,9 +48,18 @@ struct MenuBarLabel: View {
     var body: some View {
         Group {
             if app.menuShowsLogo {
-                // The brand mark (soundwave + mustache), as a template image so it
-                // tints to the menu bar the way an SF Symbol would.
-                Image("MenuBarIcon").renderingMode(.template)
+                // The brand mark (soundwave + mustache). Idle: a template image, so
+                // it tints to the menu bar the way an SF Symbol would. Listening: a
+                // pre-tinted brand-green copy of the same glyph — a second signal
+                // beside the floating pill, which can be on another screen. A
+                // separate asset rather than .foregroundStyle on the template,
+                // because colour on a MenuBarExtra label is not reliable across
+                // macOS versions; a non-template image always shows its colour.
+                if app.isRecording {
+                    Image("MenuBarIconListening").renderingMode(.original)
+                } else {
+                    Image("MenuBarIcon").renderingMode(.template)
+                }
             } else {
                 // Recording or not-ready: keep the symbol, which carries that state.
                 Image(systemName: app.menuIcon)
