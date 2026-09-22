@@ -409,7 +409,13 @@ had already been taken back; and the promotion distance dropped from 0.9 to
 tap a tap), so two-letter words on neighbouring keys ("we", "as") promote. The
 lexicon is now the OpenSubtitles 50k conversational list (speech ranking:
 "gonna" is top-500 there, ~10k on the web list) merged with the web 20k, ~47k
-entries, vowel-less junk pruned.
+entries, vowel-less junk pruned — then trimmed to the web 20k plus only the top
+15k subtitle words (names and fragments live lower), ordered by the better of
+the two ranks, contraction stems ("didn", "wasn") removed: ~22.9k entries,
+176 KB. Weights re-tuned against a harder simulation (real iPhone geometry,
+corner-cutting between letters): endpoint tolerance 1.4, tunnel 0.65, length
+prior 0.25, frequency prior 0.18. Simulated top-1: 86% at moderate noise,
+~74% under deliberately harsh noise.
 
 ### 0.1.112 — swipe (glide) typing on the keyboard (2026-09-22)
 

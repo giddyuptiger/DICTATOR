@@ -43,14 +43,17 @@ final class SwipeDecoder {
     private static let samples = 40
     /// Candidate filter: first/last letter must be within this many key widths
     /// of the path's first/last point.
-    private static let endpointTolerance = 1.25
+    private static let endpointTolerance = 1.4
     /// Score weights (all in key-width units except the shape channel, which is a
-    /// mean distance). Tuned in simulation; see the file comment.
+    /// mean distance). Re-tuned after the first device feedback against a harder
+    /// simulation (real iPhone geometry, corner-cutting between letters, a 27k
+    /// lexicon): a wider tunnel and a lighter length prior forgive cut corners,
+    /// and a stronger frequency prior lets common words beat look-alikes.
     private static let endpointWeight = 1.2
     private static let locationWeight = 1.0
-    private static let locationTunnel = 0.45
-    private static let lengthWeight = 0.4
-    private static let frequencyWeight = 0.10
+    private static let locationTunnel = 0.65
+    private static let lengthWeight = 0.25
+    private static let frequencyWeight = 0.18
 
     private let lock = NSLock()
     private var entries: [Entry] = []
