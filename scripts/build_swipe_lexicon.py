@@ -10,10 +10,14 @@ Sources (fetch once, not committed):
     20k.txt), the web ranking.
   - en_US.dic (optional): the hunspell en_US dictionary (LibreOffice/dictionaries,
     en/en_US.dic), used only to spot junk: a word whose only entry is
-    capitalised is a proper noun ("Oahu", "Patti", "Peru"), and a 2-3 letter
-    token with no entry at all is an abbreviation ("af", "ir", "asu"). Both are
-    dropped unless they rank in the spoken top 5,000 or the web top 3,000, which
-    protects "ok", "us", "american", "january" (all capitalised-only in hunspell).
+    capitalised is a proper noun ("Oahu", "Patti", "Lisa") and is dropped unless
+    it ranks in the web top 3,000 (protects "ok", "us", "american", "january";
+    the subtitle rank does not count here because subtitles are full of first
+    names); a 2-3 letter token with no entry at all is an abbreviation ("af",
+    "asu") and is dropped unless it ranks in the spoken top 5,000 or the web top
+    3,000. The dictionary is NOT used to drop anything else: it lacks "is",
+    "her", "into", "device", so a plain "not in the dictionary" rule would
+    delete the language.
 
 Rules, learned from device tests: keep the top 8k of each list, plus words in
 both lists, plus a small app-domain allowlist ("swipe" only appears in the
@@ -30,7 +34,7 @@ STEMS = {"didn","doesn","wasn","isn","hasn","couldn","wouldn","shouldn","aren","
 BLOCK = {"terri","osu","seite","msn","kierkegaard","asp","pdas","http","www","href","php","cgi","xml","html",
          # Seen beating real words in device logs (0.1.116): rare enough that a
          # swipe is never meant as them.
-         "af","aff","ir","au","asu","iot","og","sto","ste","los","sid","webb","acer","psi","patti","peru","oahu","yang","soo","thee","ay","eh","un","sweetie","phi","oi","ifyou",
+         "af","aff","ir","au","asu","iot","og","sto","ste","los","sid","webb","acer","psi","patti","peru","oahu","yang","soo","thee","ay","eh","un","sweetie","phi","oi","ifyou","la","al","ie","ire","omni","ub","od",
          # Month abbreviations: web-frequent, never swiped.
          "jan","feb","mar","apr","jun","jul","aug","sep","sept","oct","nov","dec"}
 PROTECT_SUB = 5000
@@ -67,14 +71,18 @@ def main():
                 anycase.add(w.lower())
                 if w[0].islower():
                     lower.add(w)
-        def protected(w):
-            return rs.get(w, 10**9) < PROTECT_SUB or rw.get(w, 10**9) < PROTECT_WEB or w in DOMAIN
         def junk(w):
-            if protected(w):
+            if w in DOMAIN:
                 return False
             if w in anycase and w not in lower:
-                return True            # proper noun: only ever capitalised
-            return len(w) <= 3 and w not in anycase
+                # Proper noun: only ever capitalised. Subtitles are full of
+                # first names ("lisa" ranks 1,948 there), so only the web rank
+                # protects these ("us", "ok", "american", "january").
+                return rw.get(w, 10**9) >= PROTECT_WEB
+            if len(w) <= 3 and w not in anycase:
+                # An abbreviation the dictionary has never heard of.
+                return rs.get(w, 10**9) >= PROTECT_SUB and rw.get(w, 10**9) >= PROTECT_WEB
+            return False
         dropped = sorted(w for w in keep if junk(w))
         keep -= set(dropped)
         print(f"dictionary filter dropped {len(dropped)}: {' '.join(dropped[:60])} ...")

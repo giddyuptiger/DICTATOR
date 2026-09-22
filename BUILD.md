@@ -382,6 +382,29 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.120 — swipe: second ground-truth set, names out of the lexicon (2026-09-22)
+
+The same sentence swiped again on 0.1.118 gave a second set of 41 swipes the
+decoder had never seen. The honest numbers, on the lexicon below:
+
+| decoder weights | set 1 (48) | set 2 (41) | both (89) |
+|---|---|---|---|
+| 0.1.116 | 32 | 24 | 56 |
+| 0.1.119 (shipped) | 36 | 26 | 62 |
+| best of a 144-point sweep over both sets | 38 | 25 | 63 |
+
+So the 0.1.119 weights hold up out of sample, and there is no combination
+worth moving to: the sweep's best is one word better in total and worse on
+the unseen set. The weights stay. The tuning harness now scores both sets
+(`scripts/swipe_replay/sweep3.py`) and any future change must gain on both.
+
+What did change is the lexicon. The new set surfaced "la" over "looks",
+"ie" over "it", "lisa" as a runner-up: first names and Spanish articles
+that the subtitle corpus ranks highly. A capitalised-only dictionary entry
+(a proper noun) is now kept only when it ranks in the web top 3,000, not the
+spoken top 5,000: "john", "mike", "david" stay; "lisa", "sam", "carson" go
+(the personal dictionary adds any name back). 15,844 → 15,519 entries.
+
 ### 0.1.119 — swipe: tuned on 48 real swipes (2026-09-22)
 
 The 0.1.116 report carried 50 swipes with a known target sentence: the first

@@ -11,8 +11,13 @@ change to the decoder can be judged on real thumbs before it ships.
   and a 300-path synthetic guard set. `BASE` holds the 0.1.116 weights.
 - `twoscale.py`: `KS=(0.95, 0.85)` scoring, the shipped form. Run it for the
   before/after numbers.
-- `swipes-0.1.116.txt`: the log, one line per swipe, newest first; the
-  intended words are listed (oldest first) in `replica.py`.
+- `swipes-0.1.116.txt`: the first log, one line per swipe, newest first; the
+  intended words are listed (oldest first) in `replica.py` (`DATA`).
+- `swipes-0.1.118.txt` + `set118.py`: the second log (`DATA118`), the same
+  sentence swiped again on 0.1.118. Tuning on the first set alone gave 37/48
+  there but only 25/41 here: always score both, and treat a gain that shows
+  on one set only as noise.
+- `sweep3.py`: the two-set parameter sweep that chose the 0.1.120 weights.
 
 Adding a new report: paste its `swipe →` lines into a new file, list the
 intended words in order, and point `replica.py` at it. Keep the old sets:
