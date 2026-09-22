@@ -382,6 +382,26 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.118 — swipe: the space lands right after the word (2026-09-22)
+
+Jeremy swiped "version" on 0.1.116, switched to the numbers plane, typed
+"116", and got "version116". The space after a swiped word used to wait for
+the next input (a letter tap or the next swipe added it), and digits took
+neither path. Now every swiped word is inserted as "word " immediately, as
+Apple's keyboard does, and the three things that would otherwise leave a
+mess are handled:
+
+- Punctuation typed right after (. , ! ? ; : )) takes the space back:
+  "hello ." never appears.
+- A space tapped from habit on top of the swipe's space is absorbed; it
+  still counts as the first tap of a double space, so swipe-space-space gives
+  "word. " as before.
+- One backspace still takes back the whole word plus its space.
+
+Also: sentence-start capitalisation for a swiped word now looks past
+trailing whitespace ("Hi. " typed by hand, then a swipe, capitalises), and an
+empty field counts as a sentence start.
+
 ### 0.1.117 — Polish key: rewrite what's already in the box (Pro) (2026-09-22)
 
 A wand key beside the mode button. Select text and tap it, and the selection is

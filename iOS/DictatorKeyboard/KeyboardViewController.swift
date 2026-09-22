@@ -1358,14 +1358,19 @@ final class KeyboardViewController: UIInputViewController {
         // per-keystroke stall a normal keyboard never has) and showPreview() (a
         // full convert/frame/bringSubviewToFront layout pass per press).
         if let t = sender.title(for: .normal) {
-            // A letter tapped right after a SWIPED word gets a space in front, as
-            // on Apple's keyboard: swipe "the", tap "iOS" -> "the iOS", not
-            // "theiOS". Only after a swipe (lastSwipedInsert is nil otherwise, so
-            // this costs a nil check on the hot path), only for letters, and only
-            // when the text does not already end in whitespace.
-            if lastSwipedInsert != nil, t.count == 1, t.first?.isLetter == true,
-               let last = textDocumentProxy.documentContextBeforeInput?.last, !last.isWhitespace {
-                textDocumentProxy.insertText(" ")
+            // Right after a SWIPED word (lastSwipedInsert is nil otherwise, so
+            // the hot path pays one nil check), as on Apple's keyboard:
+            // - punctuation takes back the space the swipe added: swipe "hello",
+            //   tap "." -> "hello." not "hello .";
+            // - a letter gets a space in front if the host dropped ours (some
+            //   fields trim trailing whitespace): swipe "the", tap "i" -> "the i".
+            if lastSwipedInsert != nil, t.count == 1, let c = t.first,
+               let last = textDocumentProxy.documentContextBeforeInput?.last {
+                if ".,!?;:)".contains(c), last == " " {
+                    textDocumentProxy.deleteBackward()
+                } else if c.isLetter, !last.isWhitespace {
+                    textDocumentProxy.insertText(" ")
+                }
             }
             textDocumentProxy.insertText(t)
             if shift == .once { shift = .off }
@@ -1419,6 +1424,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func spaceTapped() {
+        let afterSwipe = lastSwipedInsert != nil
         lastSwipedInsert = nil
         // Double space becomes ". ", matching the system keyboard.
         let now = Date()
@@ -1428,6 +1434,10 @@ final class KeyboardViewController: UIInputViewController {
             textDocumentProxy.deleteBackward()
             textDocumentProxy.insertText(". ")
             shift = .once
+        } else if afterSwipe, textDocumentProxy.documentContextBeforeInput?.hasSuffix(" ") == true {
+            // The swipe already put a space here; a space tapped from habit
+            // must not make it two. It still counts as the first tap of a
+            // double space, so swipe-space-space gives "word. " as expected.
         } else {
             textDocumentProxy.insertText(" ")
         }
@@ -2055,17 +2065,25 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
     /// previous character is whitespace or an opener, and capitalised as a tap
     /// would have been (shift as it stood when the touch began), or because the
     /// auto-space just created a sentence start ("Hi." + swipe -> "Hi. There").
+    /// Inserts a swiped word AND the space after it, as Apple's keyboard does
+    /// (0.1.118). The space used to wait for the next input, which left "version"
+    /// glued to a "116" typed on the numbers plane; now every swiped word ends
+    /// "word ". Typing punctuation right after takes that space back (keyDown),
+    /// one backspace takes back the whole word (deleteDown), and a tapped space
+    /// on top of it is absorbed (spaceTapped), so the user never sees a double.
     private func insertSwiped(_ word: String, shiftAtStart: Shift) {
         let proxy = textDocumentProxy
-        let before = proxy.documentContextBeforeInput
+        let before = proxy.documentContextBeforeInput ?? ""
         var out = word
-        var addedSpace = false
-        if let last = before?.last, !last.isWhitespace, !"([{\"'“‘/-@#_".contains(last) {
+        if let last = before.last, !last.isWhitespace, !"([{\"'“‘/-@#_".contains(last) {
             out = " " + out
-            addedSpace = true
         }
         let autoCaps = proxy.autocapitalizationType != UITextAutocapitalizationType.none
-        let sentenceStart = addedSpace && autoCaps && ".!?".contains(before?.last ?? " ")
+        // Sentence start: nothing before us, or the last non-blank character ends
+        // a sentence. Looking past trailing whitespace is what makes "Hi. " (a
+        // period typed by hand, then space) capitalise the next swiped word too.
+        let lastVisible = before.last(where: { !$0.isWhitespace })
+        let sentenceStart = autoCaps && (lastVisible == nil || ".!?".contains(lastVisible!))
         func capitalised(_ s: String) -> String {
             guard let i = s.firstIndex(where: { !$0.isWhitespace }) else { return s }
             return String(s[..<i]) + String(s[i]).uppercased() + String(s[s.index(after: i)...])
@@ -2075,6 +2093,7 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
         case .once:   out = capitalised(out)
         case .off:    if sentenceStart { out = capitalised(out) }
         }
+        out += " "
         proxy.insertText(out)
         lastSwipedInsert = out
         lastKeyTime = Date()
