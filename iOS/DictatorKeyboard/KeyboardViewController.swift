@@ -1848,6 +1848,9 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
         }
         textDocumentProxy.deleteBackward()
         tapped.backgroundColor = palette.key
+        // The key that actually typed the letter is the keyboard's own hit-test
+        // (gap-snapping included); make it the start-letter prior's anchor.
+        glide.startKey = tapped
         glide.active = true
 
         // The trail, in the board's ink at low alpha, above everything.
