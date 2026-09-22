@@ -1015,6 +1015,17 @@ final class KeyboardViewController: UIInputViewController {
     private var deleteTicks = 0
     private var letterKeys: [UIButton] = []
 
+    // Swipe typing (see the "Swipe typing" section at the end of the file).
+    /// A letter key inserts on touch-DOWN. If that same touch then travels across
+    /// the board it is promoted to a swipe and the one character it already
+    /// inserted is taken back — but only when these two prove that the last
+    /// key-down was that touch's, and nothing else was typed in between.
+    private var keyDownSeq = 0
+    private var lastKeyDownButton: UIButton?
+    private let swipeRecognizer = UIPanGestureRecognizer()
+    private let swipeTrail = CAShapeLayer()
+    private var glide = GlideState()
+
     private let rowsStack = KeyHitStack()
     private lazy var emojiView = makeEmojiView()
 
@@ -1057,6 +1068,12 @@ final class KeyboardViewController: UIInputViewController {
         // rows), and its grid does its own hit testing.
         rowsStack.distribution = (plane == .emoji) ? .fill : .fillEqually
         rowsStack.snapEnabled = (plane != .emoji)
+
+        // Swipe typing lives on the letters plane only. A rebuild under a live
+        // swipe (a theme flip mid-gesture) ends it cleanly rather than decoding a
+        // path against keys that no longer exist.
+        endGlide(commit: false)
+        swipeRecognizer.isEnabled = (plane == .letters) && swipeTypingEnabled
 
         if plane == .emoji { buildEmojiPlane(); return }
 
@@ -1312,6 +1329,10 @@ final class KeyboardViewController: UIInputViewController {
             textDocumentProxy.insertText(t)
             if shift == .once { shift = .off }
         }
+        // Two stores for swipe typing: which key this touch-down was, and a count
+        // so the swipe handler can prove nothing else was typed since.
+        keyDownSeq &+= 1
+        lastKeyDownButton = sender
         lastKeyTime = Date()
         sender.backgroundColor = palette.keyPressed
     }
@@ -1527,6 +1548,7 @@ final class KeyboardViewController: UIInputViewController {
         let lp = UILongPressGestureRecognizer(target: self, action: #selector(modeLongPressed(_:)))
         modeButton.addGestureRecognizer(lp)
 
+        setUpSwipeTyping()
         rebuildKeys()
     }
 
@@ -1660,4 +1682,245 @@ final class KeyboardViewController: UIInputViewController {
 /// Key clicks only sound if the input view declares it wants them.
 final class KeyboardRootView: UIInputView, UIInputViewAudioFeedback {
     var enableInputClicksWhenVisible: Bool { true }
+}
+
+// MARK: - Swipe typing
+
+/// QuickPath-style swipe (glide) typing on the letters plane.
+///
+/// How it coexists with insert-on-touch-down (LESSONS: non-negotiable for taps):
+/// a touch on a letter key inserts that letter immediately, exactly as before. A
+/// pan recognizer on the key stack watches the same touch without ever cancelling
+/// it. If the touch travels far enough to reach a DIFFERENT key, it is promoted to
+/// a swipe: the one letter it already inserted is deleted (only when the key-down
+/// count proves it was this touch's, and nothing else was typed since), a trail is
+/// drawn, and on lift the path is decoded to a word (SwipeDecoder) and inserted
+/// with QuickPath's spacing and capitalisation rules. A jittery tap never travels
+/// to another key, so tap typing is untouched. Special keys never start a swipe.
+extension KeyboardViewController: UIGestureRecognizerDelegate {
+
+    /// One swipe, from first touch to lift.
+    private struct GlideState {
+        var startKey: UIButton?
+        var startPoint = CGPoint.zero
+        /// Shift as it stood when the touch began (before the key-down consumed
+        /// a one-shot shift), so the swiped word capitalises as a tap would have.
+        var shiftAtStart: Shift = .off
+        var seqAtStart = 0
+        var points: [CGPoint] = []
+        var active = false
+    }
+
+    /// Off switch for anyone who finds swipe typing gets in the way — an App Group
+    /// flag the app can expose in Settings. Read on plane changes, never per key.
+    private var swipeTypingEnabled: Bool { !SharedStore.boolFlag("swipeTypingDisabled") }
+
+    private func setUpSwipeTyping() {
+        swipeRecognizer.addTarget(self, action: #selector(glidePan(_:)))
+        swipeRecognizer.maximumNumberOfTouches = 1
+        // Never take the touch away from the key underneath: it keeps its own
+        // touch-down insert, press colour and lift, exactly as for a tap.
+        swipeRecognizer.cancelsTouchesInView = false
+        swipeRecognizer.delaysTouchesBegan = false
+        swipeRecognizer.delaysTouchesEnded = false
+        swipeRecognizer.delegate = self
+        rowsStack.addGestureRecognizer(swipeRecognizer)
+
+        swipeTrail.fillColor = nil
+        swipeTrail.lineWidth = 9
+        swipeTrail.lineCap = .round
+        swipeTrail.lineJoin = .round
+        swipeTrail.opacity = 0
+
+        SwipeDecoder.shared.warmUp()
+        // The user's own vocabulary is swipeable too. Off the main thread: this
+        // reads the App Group.
+        DispatchQueue.global(qos: .utility).async {
+            let words = PersonalDictionary.load().entries.map(\.canonical)
+            SwipeDecoder.shared.addUserWords(words)
+        }
+    }
+
+    // MARK: UIGestureRecognizerDelegate
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === swipeRecognizer else { return true }
+        guard plane == .letters, !glide.active else { return false }
+        // Only a touch that starts ON a letter key can become a swipe; shift,
+        // delete, space and 123 never do. This runs before the key's touch-down,
+        // so `shift` and `keyDownSeq` here are the values BEFORE that insert.
+        let p = touch.location(in: view)
+        guard let key = letterKey(at: p) else { return false }
+        glide = GlideState(startKey: key, startPoint: p, shiftAtStart: shift,
+                           seqAtStart: keyDownSeq, points: [p], active: false)
+        return true
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === swipeRecognizer else { return true }
+        return plane == .letters && glide.startKey != nil
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        // Never block the system's own (edge) gestures.
+        gestureRecognizer === swipeRecognizer
+    }
+
+    // MARK: Gesture
+
+    @objc private func glidePan(_ g: UIPanGestureRecognizer) {
+        let p = g.location(in: view)
+        switch g.state {
+        case .began, .changed:
+            if let last = glide.points.last, hypot(p.x - last.x, p.y - last.y) < 2 { return }
+            if glide.points.count < 1500 { glide.points.append(p) }
+            if !glide.active { promoteIfSwiping(at: p) }
+            if glide.active {
+                // No implicit animation: the trail must follow the finger, not lag it.
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                swipeTrail.path = trailPath()
+                CATransaction.commit()
+            }
+        case .ended:
+            endGlide(commit: true)
+        case .cancelled, .failed:
+            // A system gesture took the touch. Commit anyway: never drop a word.
+            endGlide(commit: true)
+        default:
+            break
+        }
+    }
+
+    /// A touch becomes a swipe once it has travelled about a key's width AND
+    /// reached a different key. A wobble on one key stays a tap.
+    private func promoteIfSwiping(at p: CGPoint) {
+        guard let startKey = glide.startKey else { return }
+        let travelled = hypot(p.x - glide.startPoint.x, p.y - glide.startPoint.y)
+        guard travelled >= max(26, letterKeyWidth() * 0.9) else { return }
+        guard let here = letterKey(at: p, slack: 0) ?? nearestLetterKey(to: p), here !== startKey else { return }
+        // Exactly one key-down since this touch began: the letter it inserted. Any
+        // other count means another finger typed too, so this cannot be a swipe.
+        guard keyDownSeq == glide.seqAtStart &+ 1,
+              let tapped = lastKeyDownButton, letterKeys.contains(tapped) else {
+            glide.startKey = nil   // give up on this touch; it stays a plain tap
+            return
+        }
+        textDocumentProxy.deleteBackward()
+        tapped.backgroundColor = palette.key
+        glide.active = true
+
+        // The trail, in the board's ink at low alpha, above everything.
+        let ink = palette.keyText.resolvedColor(with: view.traitCollection)
+        swipeTrail.strokeColor = ink.withAlphaComponent(0.35).cgColor
+        swipeTrail.removeAllAnimations()
+        view.layer.addSublayer(swipeTrail)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        swipeTrail.path = trailPath()
+        swipeTrail.opacity = 1
+        CATransaction.commit()
+    }
+
+    /// Finish the current swipe: fade the trail and, if `commit`, decode the path
+    /// and insert the word. Safe to call when no swipe is in progress.
+    private func endGlide(commit: Bool) {
+        let wasActive = glide.active
+        let points = glide.points
+        let shiftAtStart = glide.shiftAtStart
+        glide = GlideState()
+        guard wasActive else { return }
+        fadeOutTrail()
+        guard commit else { return }
+        let word = SwipeDecoder.shared.decode(path: points, centers: letterCentres(), keyWidth: letterKeyWidth())
+        guard let word else { return }
+        insertSwiped(word, shiftAtStart: shiftAtStart)
+    }
+
+    /// Insert a swiped word with QuickPath's rules: a leading space unless the
+    /// previous character is whitespace or an opener, and capitalised as a tap
+    /// would have been (shift as it stood when the touch began), or because the
+    /// auto-space just created a sentence start ("Hi." + swipe -> "Hi. There").
+    private func insertSwiped(_ word: String, shiftAtStart: Shift) {
+        let proxy = textDocumentProxy
+        let before = proxy.documentContextBeforeInput
+        var out = word
+        var addedSpace = false
+        if let last = before?.last, !last.isWhitespace, !"([{\"'“‘/-@#_".contains(last) {
+            out = " " + out
+            addedSpace = true
+        }
+        let autoCaps = proxy.autocapitalizationType != UITextAutocapitalizationType.none
+        let sentenceStart = addedSpace && autoCaps && ".!?".contains(before?.last ?? " ")
+        func capitalised(_ s: String) -> String {
+            guard let i = s.firstIndex(where: { !$0.isWhitespace }) else { return s }
+            return String(s[..<i]) + String(s[i]).uppercased() + String(s[s.index(after: i)...])
+        }
+        switch shiftAtStart {
+        case .locked: out = out.uppercased()
+        case .once:   out = capitalised(out)
+        case .off:    if sentenceStart { out = capitalised(out) }
+        }
+        proxy.insertText(out)
+        lastKeyTime = Date()
+        if shift == .once { shift = .off }
+    }
+
+    // MARK: Geometry
+
+    private func letterKey(at p: CGPoint, slack: CGFloat = 4) -> UIButton? {
+        for key in letterKeys where !key.isHidden {
+            if key.convert(key.bounds, to: view).insetBy(dx: -slack, dy: -slack).contains(p) { return key }
+        }
+        return nil
+    }
+
+    private func nearestLetterKey(to p: CGPoint) -> UIButton? {
+        var best: UIButton?
+        var bestDistance = CGFloat.greatestFiniteMagnitude
+        for key in letterKeys where !key.isHidden {
+            let f = key.convert(key.bounds, to: view)
+            let d = hypot(f.midX - p.x, f.midY - p.y)
+            if d < bestDistance { bestDistance = d; best = key }
+        }
+        return best
+    }
+
+    private func letterKeyWidth() -> CGFloat {
+        guard !letterKeys.isEmpty else { return 0 }
+        let total = letterKeys.reduce(CGFloat(0)) { $0 + $1.bounds.width }
+        return total / CGFloat(letterKeys.count)
+    }
+
+    /// Centre of each a–z key on screen, in the controller view's coordinates.
+    private func letterCentres() -> [Character: CGPoint] {
+        var out = [Character: CGPoint]()
+        for key in letterKeys {
+            guard let t = key.title(for: .normal)?.lowercased(), t.count == 1,
+                  let ch = t.first, ch.isLetter else { continue }
+            let f = key.convert(key.bounds, to: view)
+            out[ch] = CGPoint(x: f.midX, y: f.midY)
+        }
+        return out
+    }
+
+    private func trailPath() -> CGPath? {
+        guard let first = glide.points.first else { return nil }
+        let path = UIBezierPath()
+        path.move(to: first)
+        for p in glide.points.dropFirst() { path.addLine(to: p) }
+        return path.cgPath
+    }
+
+    private func fadeOutTrail() {
+        // A standalone layer animates opacity implicitly (0.25 s); clear the path
+        // once that has finished so the next swipe starts clean.
+        swipeTrail.opacity = 0
+        let trail = swipeTrail
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, !self.glide.active else { return }
+            trail.path = nil
+        }
+    }
 }

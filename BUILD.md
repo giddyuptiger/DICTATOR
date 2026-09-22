@@ -382,6 +382,30 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.112 — swipe (glide) typing on the keyboard (2026-09-22)
+
+The typing-parity spec listed swipe typing as the keyboard's missing feature.
+Added, QuickPath-style, on the letters plane. A touch on a letter still inserts
+on touch-down (LESSONS: non-negotiable for fast tapping); a pan recognizer on
+the key stack watches the same touch without ever cancelling it, and promotes it
+to a swipe once it has travelled about a key width AND reached a different key.
+Promotion deletes the one letter the touch-down inserted — only when the
+key-down counter proves that insert was this touch's and nothing was typed
+since — draws a low-alpha trail, and on lift decodes the path to a word.
+
+`SwipeDecoder` (new file) is SHARK2-style shape matching against a bundled
+frequency-ranked lexicon (`swipe-words.txt`, ~20k words plus contractions such
+as `dont=don't`, `im=I'm`), with the user's Vocabulary terms merged in. Score =
+resampled shape distance + a heavy start/end-point term (nearly every wrong
+guess in simulation was an endpoint neighbour: dont→font, good→food) + a
+location channel (every letter must lie near the path) + mild length and
+frequency priors. Simulated top-1 accuracy 82–84% at realistic noise; every
+common word tested decodes correctly. Insertion follows QuickPath: leading space
+unless after whitespace or an opener, capitalised per the shift state at touch
+start or a sentence boundary the auto-space created. Off switch: the App Group
+flag `swipeTypingDisabled` (not yet surfaced in Settings). Not device-verified
+yet: this build is for that test.
+
 ### 0.1.95 — make Patois/Shakespearean actually transform (2026-09-19)
 
 Reported: dictating in Patois or Shakespearean returned plain casual/formal text — no
