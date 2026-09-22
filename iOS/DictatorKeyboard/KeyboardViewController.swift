@@ -1026,6 +1026,9 @@ final class KeyboardViewController: UIInputViewController {
     /// What the last swipe inserted (leading space included), so the next
     /// backspace can take the whole word back. Cleared by any other key.
     private var lastSwipedInsert: String?
+    /// The key layout is written to the activity log once per keyboard session,
+    /// ahead of the first swipe path, so a logged swipe can be replayed exactly.
+    private var swipeLayoutLogged = false
     private let swipeRecognizer = UIPanGestureRecognizer()
     private let swipeTrail = CAShapeLayer()
     private var glide = GlideState()
@@ -1860,9 +1863,35 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
         guard wasActive else { return }
         fadeOutTrail()
         guard commit else { return }
-        let word = SwipeDecoder.shared.decode(path: points, centers: letterCentres(), keyWidth: letterKeyWidth())
+        let centres = letterCentres()
+        let keyWidth = letterKeyWidth()
+        let word = SwipeDecoder.shared.decode(path: points, centers: centres, keyWidth: keyWidth)
+        logSwipe(points: points, word: word, centres: centres, keyWidth: keyWidth)
         guard let word else { return }
         insertSwiped(word, shiftAtStart: shiftAtStart)
+    }
+
+    /// Record the swipe in the activity log (Details → Report a problem): the
+    /// decoded word and the path, plus the key layout once per session. The
+    /// first device test decoded most words wrong while every simulation of the
+    /// same decoder scored above 80%, so real paths are the only way to tune it.
+    /// A swipe is a rare event, so this write is nowhere near the typing hot path.
+    private func logSwipe(points: [CGPoint], word: String?, centres: [Character: CGPoint], keyWidth: CGFloat) {
+        if !swipeLayoutLogged {
+            swipeLayoutLogged = true
+            let layout = centres.keys.sorted().compactMap { ch -> String? in
+                guard let c = centres[ch] else { return nil }
+                return "\(ch)=\(Int(c.x.rounded())),\(Int(c.y.rounded()))"
+            }.joined(separator: " ")
+            SharedStore.appendLog("swipe-layout kw=\(Int(keyWidth.rounded())) \(layout)")
+        }
+        // At most ~120 points per line; the log keeps 60 lines.
+        let step = max(1, points.count / 120)
+        var compact = [String]()
+        for (i, p) in points.enumerated() where i % step == 0 || i == points.count - 1 {
+            compact.append("\(Int(p.x.rounded())),\(Int(p.y.rounded()))")
+        }
+        SharedStore.appendLog("swipe → \(word ?? "∅") n=\(points.count) \(compact.joined(separator: ";"))")
     }
 
     /// Insert a swiped word with QuickPath's rules: a leading space unless the

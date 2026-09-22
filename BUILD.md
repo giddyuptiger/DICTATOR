@@ -417,6 +417,18 @@ corner-cutting between letters): endpoint tolerance 1.4, tunnel 0.65, length
 prior 0.25, frequency prior 0.18. Simulated top-1: 86% at moderate noise,
 ~74% under deliberately harsh noise.
 
+Then the second device test (a whole sentence: "coolest swipe feature in the
+world" came out "comedy stripe gays the weekend") sent the decoder back to the
+bench. A clean, consistent simulation (an earlier one had mismatched resample
+counts and was thrown out) says the shipped decoder is the most robust of
+five variants tried — 83% moderate, 70% hard, and still 82–84% with a
+systematic thumb offset and row undershoot modelled — and it decodes those
+very words correctly on synthetic paths. So the real paths differ from the
+model in a way that cannot be seen from here. This build therefore logs every
+swipe to the activity log (Details → Report a problem): the key layout once
+per session, then one line per swipe with the decoded word and the path, so
+the next round is tuned against real thumbs, not synthetic ones.
+
 ### 0.1.112 — swipe (glide) typing on the keyboard (2026-09-22)
 
 The typing-parity spec listed swipe typing as the keyboard's missing feature.
