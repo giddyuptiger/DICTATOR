@@ -83,7 +83,18 @@ public struct Cleaner: Sendable {
         // Deterministic filler safety-net, applied on EVERY path and mode: a small
         // or fast cleanup model does not always honour "drop the um's" (the site's
         // headline promise), so strip any that survive regardless of the model.
-        return CleanupResult(text: Self.stripFillers(r.text),
+        var text = Self.stripFillers(r.text)
+        // Deterministic Expressive safety-net, same idea as stripFillers: the small
+        // cleanup model reliably UNDER-applies exclamation points even when the mode
+        // prompt demands them, so a genuinely excited message ("I love it. So good.")
+        // kept coming out flat. In Expressive mode only, promote the ending period of
+        // any sentence that carries a clear feeling word/intensifier to "!". Only ever
+        // turns "." into "!" (never touches "?" or "…"), so it adds energy without
+        // changing a single word.
+        if DictationMode.current == .expressive {
+            text = Self.emphasize(text)
+        }
+        return CleanupResult(text: text,
                              usedProvider: r.usedProvider, latency: r.latency, note: r.note)
     }
 
@@ -177,6 +188,62 @@ public struct Cleaner: Sendable {
         let result = out.trimmingCharacters(in: .whitespacesAndNewlines)
         // Never blank the message: if it was ONLY filler, keep the original.
         return result.isEmpty ? text : result
+    }
+
+    /// Expressive-mode safety-net. Promote the sentence-ending period of any
+    /// sentence that clearly carries feeling (a positive/emphatic word or an
+    /// intensifier) to an exclamation point. Deterministic, so Expressive stops
+    /// depending on a small model that under-applies "!" no matter what the prompt
+    /// says. Only ever rewrites "." -> "!": questions ("?"), ellipses ("…"),
+    /// abbreviations, decimals and already-emphatic sentences are all left alone,
+    /// and not one word is changed.
+    static func emphasize(_ text: String) -> String {
+        guard !text.isEmpty else { return text }
+        // Words that mark a sentence as excited/enthusiastic. Kept to clear signals;
+        // a neutral factual line ("I'll be there at six.") has none of these and so
+        // keeps its period.
+        let feeling: Set<String> = [
+            "really", "so", "very", "super", "love", "loved", "loves", "loving",
+            "amazing", "awesome", "incredible", "insane", "unreal", "epic",
+            "great", "best", "greatest", "perfect", "fantastic", "wonderful",
+            "brilliant", "excellent", "beautiful", "gorgeous", "stunning",
+            "stoked", "obsessed", "pumped", "thrilled", "excited", "exciting",
+            "fun", "good", "nice", "happy", "glad", "yes", "yay", "wow", "woohoo",
+            "congrats", "congratulations", "finally", "absolutely", "definitely",
+            "cool", "sick", "dope", "fire", "legend", "goat", "beautiful"
+        ]
+        // Multi-word cues worth catching as substrings.
+        let phrases = ["can't wait", "cant wait", "can not wait", "let's go", "lets go",
+                       "so good", "so much", "so happy", "so excited", "hell yes",
+                       "no way", "oh my", "thank you so"]
+        // A sentence body ending in a word/quote/paren char, then a lone "." that is
+        // followed by whitespace or end-of-string. `[^.!?\n]*` can't cross another
+        // terminator, so "..." (its final "." is preceded by ".") and decimals like
+        // "1.3" (the "." is followed by a digit, not whitespace) never match.
+        let pattern = "([^.!?\\n]*[\\p{L}\\p{N}'\"\\)])\\.(\\s|$)"
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return text }
+        let ns = text as NSString
+        // Collect the "." locations to promote, then rewrite. "." and "!" are both
+        // one UTF-16 unit, so the length never changes and original ranges stay valid.
+        var dotLocations: [Int] = []
+        re.enumerateMatches(in: text, range: NSRange(location: 0, length: ns.length)) { m, _, _ in
+            guard let m, m.numberOfRanges >= 2 else { return }
+            let bodyRange = m.range(at: 1)
+            let body = ns.substring(with: bodyRange).lowercased()
+            let words = Set(body.split { !$0.isLetter && !$0.isNumber && $0 != "'" }.map(String.init))
+            let hit = !words.isDisjoint(with: feeling) || phrases.contains { body.contains($0) }
+            guard hit else { return }
+            let dotLocation = bodyRange.location + bodyRange.length
+            if dotLocation < ns.length, ns.substring(with: NSRange(location: dotLocation, length: 1)) == "." {
+                dotLocations.append(dotLocation)
+            }
+        }
+        guard !dotLocations.isEmpty else { return text }
+        let out = NSMutableString(string: text)
+        for loc in dotLocations {
+            out.replaceCharacters(in: NSRange(location: loc, length: 1), with: "!")
+        }
+        return out as String
     }
 
     /// Whether a cleanup result reads as the model refusing or apologising rather
