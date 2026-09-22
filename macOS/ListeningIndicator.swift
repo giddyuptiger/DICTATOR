@@ -29,9 +29,22 @@ final class ListeningIndicator {
         ensurePanel()
         reposition()
         waveform.mode = .listening
-        panel?.alphaValue = 0
-        panel?.orderFrontRegardless()
-        fade(to: 1, duration: 0.16)
+        // Shown at full alpha at once. The earlier fade-in (alpha 0, order front,
+        // animate to 1) made the pill's visibility depend on the animation actually
+        // running; a report of "recording works, pill never appears" is exactly
+        // what a skipped fade-in looks like, and a 0.16 s fade-in was invisible
+        // anyway. The fade-OUT stays.
+        if let panel {
+            // Through the animator with a zero duration, so it also REPLACES a
+            // hide fade still in flight (dictate, release, dictate again inside
+            // 0.18 s): a plain assignment would let that animation finish at 0.
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0
+                panel.animator().alphaValue = 1
+            }
+            panel.alphaValue = 1
+            panel.orderFrontRegardless()
+        }
     }
 
     func showTranscribing() {
@@ -88,6 +101,12 @@ final class ListeningIndicator {
         blur.wantsLayer = true
         blur.layer?.cornerRadius = size.height / 2
         blur.layer?.masksToBounds = true
+        // A hairline outline does the job the window shadow used to do (0.1.10x
+        // removed the shadow because it drew a square around the round pill):
+        // without either, a frosted dark pill over a dark wallpaper all but
+        // disappears.
+        blur.layer?.borderWidth = 1
+        blur.layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
         blur.autoresizingMask = [.width, .height]
 
         waveform.frame = blur.bounds.insetBy(dx: 26, dy: 16)
@@ -98,10 +117,15 @@ final class ListeningIndicator {
         panel = p
     }
 
-    /// Bottom-centre of the active screen, sitting above the Dock.
+    /// Bottom-centre of the screen the user is working on, sitting above the Dock.
+    /// That is the screen under the mouse: `NSScreen.main` is the screen of OUR key
+    /// window, and a menu-bar app has none, so it silently meant the primary
+    /// display — on a two-display desk the pill appeared on the other screen.
     private func reposition() {
         guard let panel else { return }
-        let screen = NSScreen.main ?? NSScreen.screens.first
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
+            ?? NSScreen.main ?? NSScreen.screens.first
         guard let vf = screen?.visibleFrame else { return }
         let w = panel.frame.width, h = panel.frame.height
         let x = vf.midX - w / 2
