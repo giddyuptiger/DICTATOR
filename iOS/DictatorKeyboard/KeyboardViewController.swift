@@ -1805,6 +1805,9 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
                 CATransaction.commit()
             }
         case .ended:
+            // The lift point is where the person aimed the last letter; the last
+            // .changed sample can sit a few points short of it.
+            if glide.active, glide.points.count < 1500 { glide.points.append(p) }
             endGlide(commit: true)
         case .cancelled, .failed:
             // A system gesture took the touch. Commit anyway: never drop a word.
@@ -1814,12 +1817,15 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
         }
     }
 
-    /// A touch becomes a swipe once it has travelled about a key's width AND
-    /// reached a different key. A wobble on one key stays a tap.
+    /// A touch becomes a swipe once it has travelled about half a key's width AND
+    /// reached a different key. A wobble on one key stays a tap; the "different
+    /// key" half of the test is what keeps a jittery tap a tap, so the distance
+    /// can stay short enough that a two-letter word on neighbouring keys ("we",
+    /// "as") still promotes even when the finger starts near the shared edge.
     private func promoteIfSwiping(at p: CGPoint) {
         guard let startKey = glide.startKey else { return }
         let travelled = hypot(p.x - glide.startPoint.x, p.y - glide.startPoint.y)
-        guard travelled >= max(26, letterKeyWidth() * 0.9) else { return }
+        guard travelled >= max(14, letterKeyWidth() * 0.45) else { return }
         guard let here = letterKey(at: p, slack: 0) ?? nearestLetterKey(to: p), here !== startKey else { return }
         // Exactly one key-down since this touch began: the letter it inserted. Any
         // other count means another finger typed too, so this cannot be a swipe.

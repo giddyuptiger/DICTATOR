@@ -398,6 +398,19 @@ price ("free", "$15/month"). That is fixed in App Store Connect, not code: the
 screenshot captions lose every price reference; the description may keep them
 (Apple says so explicitly). Both rules added to docs/SUBMISSION_CHECKLIST.md.
 
+Also in this build, first real-device feedback on swipe typing ("works, just not
+very well") led to three structural fixes before any weight tuning: the lift
+point is now appended to the path (the last move sample can sit short of it);
+the decoder always has at least the nearest letter as a start/end candidate,
+so a lift a little below the bottom row (over the space bar) still decodes —
+before, it found no candidates and inserted nothing after the touch-down letter
+had already been taken back; and the promotion distance dropped from 0.9 to
+0.45 key widths (the "different key" half of the test is what keeps a jittery
+tap a tap), so two-letter words on neighbouring keys ("we", "as") promote. The
+lexicon is now the OpenSubtitles 50k conversational list (speech ranking:
+"gonna" is top-500 there, ~10k on the web list) merged with the web 20k, ~47k
+entries, vowel-less junk pruned.
+
 ### 0.1.112 — swipe (glide) typing on the keyboard (2026-09-22)
 
 The typing-parity spec listed swipe typing as the keyboard's missing feature.

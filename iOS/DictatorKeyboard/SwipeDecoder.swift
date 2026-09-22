@@ -106,13 +106,25 @@ final class SwipeDecoder {
         let drawnLength = Self.length(of: path)
         guard let first = path.first, let last = path.last else { return nil }
 
-        // Which letters could the path have started / ended on?
+        // Which letters could the path have started / ended on? Always at least
+        // the nearest one: a lift that lands a little below the bottom row (over
+        // the space bar) or above the top row must still decode, because by now
+        // the letter the touch-down typed has been taken back and returning
+        // nothing would leave the person with less than they had.
         var firstLetters = [Int](), lastLetters = [Int]()
+        var nearestFirst = -1, nearestLast = -1
+        var nearestFirstDistance = Double.greatestFiniteMagnitude
+        var nearestLastDistance = Double.greatestFiniteMagnitude
         for i in 0..<26 {
             guard let c = centre[i] else { continue }
-            if Self.distance(c, first) <= Self.endpointTolerance * kw { firstLetters.append(i) }
-            if Self.distance(c, last) <= Self.endpointTolerance * kw { lastLetters.append(i) }
+            let df = Self.distance(c, first), dl = Self.distance(c, last)
+            if df <= Self.endpointTolerance * kw { firstLetters.append(i) }
+            if dl <= Self.endpointTolerance * kw { lastLetters.append(i) }
+            if df < nearestFirstDistance { nearestFirstDistance = df; nearestFirst = i }
+            if dl < nearestLastDistance { nearestLastDistance = dl; nearestLast = i }
         }
+        if firstLetters.isEmpty, nearestFirst >= 0 { firstLetters = [nearestFirst] }
+        if lastLetters.isEmpty, nearestLast >= 0 { lastLetters = [nearestLast] }
         guard !firstLetters.isEmpty, !lastLetters.isEmpty else { return nil }
         let lastSet = Set(lastLetters)
 
