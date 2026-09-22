@@ -2,6 +2,6 @@ Dictator is a dictation keyboard. Two things to know:
 
 1) HOW TO TEST DICTATION. iOS keyboard extensions cannot access the microphone, so recording happens in the Dictator container app. First launch: open Dictator, complete the short setup (enable the keyboard and Full Access in Settings), and turn Dictator on so the mic is ready. Then in any app, switch to the Dictator keyboard and tap the mic to dictate. If the app was evicted from memory, tapping the keyboard's mic opens Dictator to a "swipe back to your app" screen — this is expected (iOS removed automatic return-to-app in 26.4).
 
-2) WHY FULL ACCESS. The keyboard needs Full Access for (a) network, for the cloud text-cleanup step, and (b) its shared app-group storage, to receive the transcript from the container app. We do not log or transmit keystrokes or text-field contents. This is explained in our privacy policy.
+2) WHY FULL ACCESS. The keyboard extension itself never connects to the internet. It needs Full Access to communicate with its own container app: to receive the transcript through shared app-group storage, and to open the Dictator app when the microphone needs to be re-armed. Transcription runs on the device inside the container app; only the container app's short text-cleanup step contacts our server. We do not log or transmit keystrokes or text-field contents. This is explained in our privacy policy.
 
 No account or login is required. On-device transcription needs a one-time model download on first use (requires network once, then works offline).
