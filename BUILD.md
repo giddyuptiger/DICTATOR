@@ -382,6 +382,22 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.113 — App Review fixes for the 1.0 (122) rejection (2026-09-22)
+
+Two findings. **Guideline 5.1.1(iv)** (permission requests): the onboarding
+microphone screen had an "Allow the microphone" button and could be left via
+"Skip setup" / "Do this later" without the system prompt ever appearing. Apple's
+rule: a message shown before a permission prompt may explain, but its button
+must be neutral and the user must always proceed to the prompt. Fixed: the
+button is "Continue"; on that step Skip and "Do this later" are gone, and Next
+only appears after the prompt has been answered (granted → straight to "Try
+it"; denied → the Settings hint plus Next). The warm-up path in
+BackgroundRecorder asks the system directly with no custom pre-prompt, so it
+was already compliant. **Guideline 2.3.7** (metadata): the screenshots mention
+price ("free", "$15/month"). That is fixed in App Store Connect, not code: the
+screenshot captions lose every price reference; the description may keep them
+(Apple says so explicitly). Both rules added to docs/SUBMISSION_CHECKLIST.md.
+
 ### 0.1.112 — swipe (glide) typing on the keyboard (2026-09-22)
 
 The typing-parity spec listed swipe typing as the keyboard's missing feature.

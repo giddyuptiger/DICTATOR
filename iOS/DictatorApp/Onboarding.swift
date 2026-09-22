@@ -14,6 +14,11 @@ import UIKit
 /// Copy here is consent-surface and instructional, so it names the mechanism on
 /// purpose (VOICE.md § 2). Re-check the Full Access paragraph if the keyboard target
 /// ever makes its own network call.
+///
+/// App Review rule that shapes the microphone step (guideline 5.1.1(iv); the 1.0
+/// (122) rejection): a screen shown before a system permission prompt may explain,
+/// but its button must be neutral ("Continue"/"Next", not "Allow…") and the user
+/// must always proceed to the prompt — no skip or "later" that bypasses it.
 struct OnboardingView: View {
     let onFinish: () -> Void
 
@@ -32,8 +37,14 @@ struct OnboardingView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Skip setup") { finish() }
-                    .font(.caption)
+                // Not on the microphone step. App Review (guideline 5.1.1(iv))
+                // requires that a message shown before a permission prompt always
+                // leads to that prompt: no skip, no "later". The rejection of
+                // 1.0 (122) named this very button.
+                if step != 3 {
+                    Button("Skip setup") { finish() }
+                        .font(.caption)
+                }
             }
             .padding(.horizontal)
             .padding(.top)
@@ -95,22 +106,30 @@ struct OnboardingView: View {
             title: "The orange dot is the truth",
             body: "While Dictator is on, it keeps the microphone open so the keyboard can dictate from any app without switching back here. Your iPhone shows the orange dot the whole time it's open. Turn Dictator off when you want the microphone closed."
         ) {
-            Button("Allow the microphone") {
-                Task {
-                    let granted = await AVAudioApplication.requestRecordPermission()
-                    await MainActor.run {
-                        micAsked = true
-                        micGranted = granted
-                        // Only move on if it was actually granted. Walking the
-                        // user to "Try it" after they tapped Don't Allow sets
-                        // them up to watch a mic button do nothing.
-                        if granted { step = 4 }
+            // App Review (guideline 5.1.1(iv), rejection of 1.0 (122)): a message
+            // shown before a permission prompt must use a neutral button
+            // ("Continue" or "Next", never "Allow…"), and the user must always go
+            // on to the system prompt — so until the prompt has been shown there is
+            // no Next, no "Do this later" and no Skip on this screen. The decision
+            // itself is made in Apple's dialog, which is the point of the rule.
+            if !micAsked {
+                Button("Continue") {
+                    Task {
+                        let granted = await AVAudioApplication.requestRecordPermission()
+                        await MainActor.run {
+                            micAsked = true
+                            micGranted = granted
+                            // Only move on if it was actually granted. Walking the
+                            // user to "Try it" after they tapped Don't Allow sets
+                            // them up to watch a mic button do nothing.
+                            if granted { step = 4 }
+                        }
                     }
                 }
-            }
-            .buttonStyle(.borderedProminent)
-
-            if micAsked && !micGranted {
+                .buttonStyle(.borderedProminent)
+            } else if !micGranted {
+                // The prompt has been shown (or was answered on an earlier run),
+                // so the user may now continue without the microphone.
                 Text("Dictator can't hear you yet. Open Settings › Dictator and turn the microphone on, then come back.")
                     .font(.caption)
                     .foregroundStyle(.red)
@@ -121,9 +140,9 @@ struct OnboardingView: View {
                     }
                 }
                 .font(.caption)
-            }
 
-            nextRow(enabled: true, laterAdvances: true)
+                nextRow(enabled: true, laterAdvances: false)
+            }
         }
     }
 

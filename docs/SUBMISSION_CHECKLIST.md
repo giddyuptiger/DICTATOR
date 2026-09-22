@@ -78,3 +78,17 @@ The reviewer notes explaining the keyboard + Full Access are already in
 - **App Attest** backend hardening — plan in `docs/APP_ATTEST.md`. Needs ~an hour with
   a real device to verify before flipping on. Do it before you push hard for volume;
   the rate limits + global spend cap cover a soft launch.
+
+## Learned from the 1.0 (122) rejection (2026-09-22)
+
+- **Permission pre-prompts (5.1.1(iv)).** Any screen shown before a system
+  permission dialog (microphone, and Full Access if we ever prompt for it) must
+  use a neutral button — "Continue" or "Next", never "Allow…" — and must always
+  lead to the system prompt. No "Skip", "Later" or close button on that screen
+  until the prompt has been answered. The app may explain why first; the user
+  decides in Apple's dialog.
+- **No price references in metadata (2.3.7).** Screenshots, previews, app name,
+  subtitle and promotional text must not mention price — and "free", "no
+  subscription" or "$15/month" all count as price references. The description
+  is the one place price may be discussed. Check every screenshot caption
+  before upload.
