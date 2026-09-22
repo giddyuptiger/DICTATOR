@@ -55,9 +55,10 @@ final class SwipeDecoder {
     private var bigramID: [String: UInt32] = [:] // keysText -> id
     private var entryBigramID: [UInt32] = []     // per entry; UInt32.max when unknown
     /// Bonus weight, in key widths per decade of count above the floor. "this is"
-    /// (10^8.2) beats "this us" (absent) by about 0.45 key widths — enough to
-    /// settle a neighbour-key tie, not enough to override a clear shape.
-    private static let contextWeight = 0.12
+    /// (10^8.2) beats "this us" (absent) by about 0.9 key widths: on real thumbs
+    /// (0.1.119) context had to carry more, because a lift a full key early is
+    /// common and shape alone cannot tell "instead" from "interest" then.
+    private static let contextWeight = 0.25
     private static let contextFloor = 4.5
     private static let contextCap = 5.0
 
@@ -71,16 +72,30 @@ final class SwipeDecoder {
     /// simulation (real iPhone geometry, corner-cutting between letters, a 27k
     /// lexicon): a wider tunnel and a lighter length prior forgive cut corners,
     /// and a stronger frequency prior lets common words beat look-alikes.
-    private static let endpointWeight = 1.2
+    ///
+    /// Re-tuned again in 0.1.119 against 48 real swipes with known targets (see
+    /// BUILD.md): a lighter endpoint weight (a thumb lifts a full key early or
+    /// late more often than the simulator assumed) and a lighter frequency
+    /// prior, now that the lexicon carries fewer junk look-alikes.
+    private static let endpointWeight = 0.6
     private static let locationWeight = 1.0
-    private static let locationTunnel = 0.65
+    private static let locationTunnel = 0.85
     private static let lengthWeight = 0.25
     /// Penalty, in key widths, for a candidate whose first letter is not the key
-    /// the touch-down hit-tested to (see `decode(startLetter:)`).
+    /// the touch-down hit-tested to (see `decode(startLetter:)`). Graded: nothing
+    /// while the touch-down is within half a key of the candidate's first letter,
+    /// the full penalty from a key away. A thumb that lands on the seam between
+    /// "t" and "y" meant either.
     private static let startKeyPenalty = 0.6
-    /// Stronger than the first cut (0.18): on real thumbs the losers were junk
-    /// look-alikes ("osu" over "okay"), and the simulator's sweep peaked here.
-    private static let frequencyWeight = 0.30
+    private static let frequencyWeight = 0.22
+    /// Horizontal reach. A thumb does not stretch to the edge keys: on a real
+    /// iPhone the turns meant for "p" (x 417) landed at 384-398 and those meant
+    /// for "a" (x 41) at 55-90, a consistent 14% compression about the centre of
+    /// the keyboard, while the middle keys were hit where they are. Each word's
+    /// ideal path is therefore scored at full width AND compressed to 86%, and
+    /// the better fit counts. "swipe" lost to "store" at full width alone: the
+    /// user's turn never reached "p", and "store"'s "o" was closer.
+    private static let reachScales: [Double] = [0.95, 0.85]
 
     private let lock = NSLock()
     private var entries: [Entry] = []
@@ -183,6 +198,11 @@ final class SwipeDecoder {
         let lastSet = Set(lastLetters)
         let prevID = previousWord.flatMap { bigramID[$0] }
 
+        // The keyboard's horizontal centre, for the reach scales.
+        var centreX = 0.0, centreCount = 0.0
+        for c in centre { if let c { centreX += Double(c.x); centreCount += 1 } }
+        centreX /= max(1, centreCount)
+
         var scored = [(score: Double, output: String)]()
         for f in firstLetters {
             for rank in byFirstLetter[f] {
@@ -200,29 +220,49 @@ final class SwipeDecoder {
                 }
                 if missing { continue }
 
-                // Shape channel.
-                let idealResampled = Self.resample(ideal, count: Self.samples)
-                var shape = 0.0
-                for i in 0..<Self.samples { shape += Self.distance(drawn[i], idealResampled[i]) }
-                shape /= Double(Self.samples)
+                // Geometry, at each reach scale; the best fit counts.
+                var geometry = Double.greatestFiniteMagnitude
+                for scale in Self.reachScales {
+                    let path = scale == 1.0 ? ideal : ideal.map {
+                        CGPoint(x: centreX + (Double($0.x) - centreX) * scale, y: Double($0.y))
+                    }
 
-                // Endpoint channel: start and end are where the person was precise.
-                let endpoints = Self.distance(first, ideal[0]) + Self.distance(last, ideal[ideal.count - 1])
+                    // Shape channel.
+                    let idealResampled = Self.resample(path, count: Self.samples)
+                    var shape = 0.0
+                    for i in 0..<Self.samples { shape += Self.distance(drawn[i], idealResampled[i]) }
+                    shape /= Double(Self.samples)
 
-                // Location channel: every letter must be visited (within the tunnel).
-                var location = 0.0
-                for c in ideal {
-                    var nearest = Double.greatestFiniteMagnitude
-                    for p in drawn { nearest = min(nearest, Self.distance(c, p)) }
-                    location += max(0, nearest - Self.locationTunnel * kw)
+                    // Endpoint channel: start and end are where the person was precise.
+                    let endpoints = Self.distance(first, path[0]) + Self.distance(last, path[path.count - 1])
+
+                    // Location channel: every letter must be visited (within the tunnel).
+                    var location = 0.0
+                    for c in path {
+                        var nearest = Double.greatestFiniteMagnitude
+                        for p in drawn { nearest = min(nearest, Self.distance(c, p)) }
+                        location += max(0, nearest - Self.locationTunnel * kw)
+                    }
+                    // Summed, not averaged: averaging let a long word hide one
+                    // letter it never went near ("address" over "adds").
+
+                    // Length prior: a path much longer or shorter than the word's is suspect.
+                    let idealLength = Self.length(of: path)
+                    let lengthPenalty = abs(log((drawnLength + 0.5 * kw) / (idealLength + 0.5 * kw)))
+
+                    geometry = min(geometry, shape
+                        + Self.endpointWeight * endpoints
+                        + Self.locationWeight * location
+                        + Self.lengthWeight * kw * lengthPenalty)
                 }
-                location /= Double(ideal.count)
 
-                // Length prior: a path much longer or shorter than the word's is suspect.
-                let idealLength = Self.length(of: ideal)
-                let lengthPenalty = abs(log((drawnLength + 0.5 * kw) / (idealLength + 0.5 * kw)))
-
-                let startMismatch = (startIndex != nil && startIndex != f) ? Self.startKeyPenalty * kw : 0
+                // Start key, graded by how far the touch-down was from this word's
+                // first letter (at full width: the first key is under the thumb).
+                var startMismatch = 0.0
+                if startIndex != nil, startIndex != f {
+                    let d = Self.distance(first, ideal[0]) / kw
+                    startMismatch = Self.startKeyPenalty * kw * min(1, max(0, (d - 0.5) / 0.5))
+                }
 
                 // Context: how commonly this word follows the previous one.
                 var context = 0.0
@@ -231,11 +271,8 @@ final class SwipeDecoder {
                     context = min(Self.contextCap, max(0, Double(s) / 10 - Self.contextFloor))
                 }
 
-                let score = shape
-                    + Self.endpointWeight * endpoints
-                    + Self.locationWeight * location
+                let score = geometry
                     + startMismatch
-                    + Self.lengthWeight * kw * lengthPenalty
                     + Self.frequencyWeight * kw * log10(Double(rank) + 1)
                     - Self.contextWeight * kw * context
 

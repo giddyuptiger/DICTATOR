@@ -382,6 +382,45 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.119 — swipe: tuned on 48 real swipes (2026-09-22)
+
+The 0.1.116 report carried 50 swipes with a known target sentence: the first
+real ground truth. A Python replica of the decoder reproduced all 50 device
+picks exactly, so the replay now predicts the phone. On that set the decoder
+was right 29 times in 48; this build is right 37 (top-3: 43), and the
+synthetic guard set (300 noisy paths over the lexicon) did not regress.
+
+What the paths showed, and what changed:
+
+- **Reach.** Turns meant for "p" (x 417) landed at 384-398, turns meant for
+  "a" (x 41) at 55-90: a thumb compresses the keyboard about 14% around its
+  centre, while the middle keys are hit where they are. Every candidate is now
+  scored at 95% and 85% width and the better fit counts. This is what made
+  "swipe" lose to "store" (the turn never reached "p"; "o" was closer).
+- **Endpoints are not precise.** Lifts a full key early or late were common
+  ("it" lifted on "r"), so the endpoint weight drops from 1.2 to 0.6 and the
+  start-key penalty is graded (nothing within half a key of the candidate's
+  first letter, full from a key away): a touch-down on the t/y seam cost
+  "texting" the word.
+- **Location is summed, not averaged.** Averaging let a long word hide one
+  letter it never went near ("address" over "adds").
+- **Context carries more** (0.12 → 0.25 per decade): "this is" beats "this
+  us" by about 0.9 key widths now.
+- **Lexicon junk.** "af" beat "add", "ir" beat "it", "yang" beat "texting",
+  "oahu" beat "okay". The builder now takes the hunspell en_US dictionary
+  (LibreOffice/dictionaries) and drops words whose only entry is capitalised
+  (proper nouns) and 2-3 letter tokens it does not know at all, unless they
+  rank in the spoken top 5,000 or web top 3,000 (protects "ok", "us",
+  "january"); an allowlist keeps everyday brands and holidays. 18,116 →
+  15,844 entries. Month abbreviations and a dozen device-log offenders are
+  blocked by name.
+
+Still wrong on that set: "okay" swiped as o-s-u (the "k" skipped, "a" short
+by a key, "y" long by a key), "space" with its "c" on "v", "looks"/"like"
+where the thumb's "o" and "i" were the same point, and "instead" lifted on
+"f". Those need either more precision from the thumb or a longer-range
+language model; the wand key (0.1.117) fixes them after the fact.
+
 ### 0.1.118 — swipe: the space lands right after the word (2026-09-22)
 
 Jeremy swiped "version" on 0.1.116, switched to the numbers plane, typed
