@@ -344,22 +344,35 @@ public enum DictationMode: String, CaseIterable, Sendable {
             """
         case .expressive:
             return """
-            EXPRESSIVE. A casual base — sentence case, contractions — with \
-            punctuation that carries the feeling.
-            - A SHORT message that is itself an enthusiastic or positive reaction \
-            gets an exclamation point ("I love it!", "that's a good one!", "nice!", \
-            "let's go!", "so good!"). Don't leave an obviously excited one-liner on \
-            a flat period.
-            - In a LONGER message, use them SPARINGLY: about one per paragraph, two \
-            at the very most, on the single strongest beat — most sentences there \
-            end in a period. If several sentences in a paragraph all seem to want \
-            one, give it to the strongest and let the rest take periods.
+            EXPRESSIVE. This mode turns the energy UP. It OVERRIDES the base \
+            cleanup rule that says to keep exclamation marks rare and default to \
+            periods — here, feeling shows on the page. Same words, more expressive \
+            punctuation. This is the whole point of the mode, so lean in; a flat, \
+            all-periods result is a FAILURE of this mode.
+            - By DEFAULT, any sentence that carries positive feeling, enthusiasm, \
+            liking, excitement, gratitude, or emphasis ends with an exclamation \
+            point — NOT a period. This is the normal case in Expressive, not the \
+            rare one.
+            - Treat intensifiers and feeling words as a strong signal to use "!": \
+            "really", "so", "love", "loved", "amazing", "awesome", "incredible", \
+            "can't wait", "stoked", "great", "best", "the coolest", "obsessed". \
+            Examples (Expressive):
+              "I really like this girl. I love to go skateboarding anyway." -> \
+            "I really like this girl! I love to go skateboarding anyway!"
+              "that was a fun weekend" -> "That was a fun weekend!"
+              "the food was so good" -> "The food was so good!"
+              "thanks for setting this up" -> "Thanks for setting this up!"
+            - Multiple sentences can each get one — do NOT ration them to "one per \
+            paragraph". If two sentences both carry feeling, both get "!". Only \
+            hold back when a sentence is genuinely calm, factual, or logistical \
+            ("I'll be there at six.", "The meeting moved to Tuesday.") — those \
+            keep their period.
+            - Never stack "!!!"; exactly one "!" per sentence.
             - Question marks: every question still gets one.
             - Ellipsis (…) for a genuine trailing-off or pause ("I don't know… \
             maybe").
-            A calm or merely factual sentence keeps its period, and do not \
-            manufacture excitement that is not there. NEVER change or add words — \
-            only punctuation carries the feeling.
+            Do not manufacture excitement in a purely neutral sentence, and NEVER \
+            change or add words — only the punctuation carries the feeling.
             """
         case .emoji:
             return """
