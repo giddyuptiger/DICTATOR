@@ -163,7 +163,23 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var undoButton  = makeUndo()
     private lazy var redoButton  = makeRedo()
     private lazy var modeButton  = makeMode()
+    private lazy var polishButton = makePolish()
     private var lastInserted: String?
+    /// Set when `lastInserted` replaced existing text (the Polish key): undo
+    /// deletes the replacement AND puts this back, so a polish is never lossy.
+    private var undoRestores: String?
+
+    /// One Polish request in flight: what was sent, and how to replace it when
+    /// the answer comes back.
+    private struct PolishJob {
+        let original: String
+        let beforeCount: Int
+        let afterCount: Int
+        let isSelection: Bool
+    }
+    private var polishJob: PolishJob?
+    private var lastPolishToken: String?
+    private var polishTimeout: Timer?
     /// The text most recently removed by undo, so redo can put it back. Cleared
     /// whenever a new dictation is inserted (that invalidates the redo history).
     private var lastUndone: String?
@@ -402,6 +418,9 @@ final class KeyboardViewController: UIInputViewController {
         }
         bridge.observe(.failed) { [weak self] in
             MainActor.assumeIsolated { self?.consumeResult() }
+        }
+        bridge.observe(.polishReady) { [weak self] in
+            MainActor.assumeIsolated { self?.consumePolish() }
         }
     }
 
@@ -755,6 +774,7 @@ final class KeyboardViewController: UIInputViewController {
         }
 
         lastInserted = inserted
+        undoRestores = nil               // a dictation adds text; nothing to put back
         lastUndone = nil                 // a fresh dictation invalidates redo
         undoButton.isHidden = false
         redoButton.isHidden = true
@@ -824,6 +844,8 @@ final class KeyboardViewController: UIInputViewController {
     @objc private func undoTapped() {
         guard let t = lastInserted else { return }
         for _ in 0..<t.count { textDocumentProxy.deleteBackward() }
+        // A polish replaced text: put the original back.
+        if let original = undoRestores { textDocumentProxy.insertText(original) }
         lastInserted = nil
         lastUndone = t                 // keep it so redo can put it back
         undoButton.isHidden = true
@@ -833,6 +855,9 @@ final class KeyboardViewController: UIInputViewController {
 
     @objc private func redoTapped() {
         guard let t = lastUndone else { return }
+        if let original = undoRestores {
+            for _ in 0..<original.count { textDocumentProxy.deleteBackward() }
+        }
         textDocumentProxy.insertText(t)
         lastInserted = t               // now undoable again
         lastUndone = nil
@@ -1532,7 +1557,7 @@ final class KeyboardViewController: UIInputViewController {
     private var heightConstraint: NSLayoutConstraint?
 
     private func layout() {
-        let bar = UIStackView(arrangedSubviews: [modeButton, micButton, undoButton, redoButton])
+        let bar = UIStackView(arrangedSubviews: [modeButton, polishButton, micButton, undoButton, redoButton])
         bar.axis = .horizontal
         bar.spacing = 6
         bar.distribution = .fill
@@ -1571,6 +1596,7 @@ final class KeyboardViewController: UIInputViewController {
 
             bar.heightAnchor.constraint(equalToConstant: 42),
             modeButton.widthAnchor.constraint(equalToConstant: 86),
+            polishButton.widthAnchor.constraint(equalToConstant: 42),
             undoButton.widthAnchor.constraint(equalToConstant: 42),
             redoButton.widthAnchor.constraint(equalToConstant: 42),
 
@@ -1710,6 +1736,100 @@ final class KeyboardViewController: UIInputViewController {
         b.addTarget(self, action: #selector(redoTapped), for: .touchUpInside)
         b.accessibilityLabel = "Redo dictation"
         return b
+    }
+
+    private func makePolish() -> UIButton {
+        let b = UIButton(type: .custom)
+        b.setImage(UIImage(systemName: "wand.and.stars"), for: .normal)
+        b.tintColor = .label
+        b.backgroundColor = .systemGray3
+        b.layer.cornerRadius = 10
+        b.addTarget(self, action: #selector(polishTapped), for: .touchUpInside)
+        b.accessibilityLabel = "Polish text"
+        return b
+    }
+
+    // MARK: - Polish (Pro)
+
+    /// Rewrite what is already in the field in the current mode — typos, swipe
+    /// mis-guesses, punctuation, capitals, and the register (Formal, Expressive,
+    /// Shakespeare…). Selected text is polished on its own; with no selection,
+    /// the text the host exposes around the cursor is (for a message, that is
+    /// the whole message). The work happens in the app over the same channel a
+    /// dictation uses; the keyboard itself never networks.
+    @objc private func polishTapped() {
+        guard Pro.allows(.polish) else { flash("Polish is a Pro feature."); return }
+        guard polishJob == nil else { return }
+        guard mode == .ready || mode == .retryError else {
+            flash(appIsAlive ? "Busy. Try again in a moment." : "Tap the pill to wake Dictator first.")
+            return
+        }
+        let proxy = textDocumentProxy
+        let job: PolishJob
+        if let selected = proxy.selectedText,
+           !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            job = PolishJob(original: selected, beforeCount: 0, afterCount: 0, isSelection: true)
+        } else {
+            let before = proxy.documentContextBeforeInput ?? ""
+            let after = proxy.documentContextAfterInput ?? ""
+            let text = before + after
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                flash("Nothing to polish yet.")
+                return
+            }
+            job = PolishJob(original: text, beforeCount: before.count, afterCount: after.count, isSelection: false)
+        }
+        polishJob = job
+        SharedStore.publishPolishRequest(job.original)
+        DarwinBridge.shared.post(.polish)
+        flash("Polishing…", seconds: 20)
+        polishTimeout?.invalidate()
+        let t = Timer(timeInterval: 15, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.polishJob != nil else { return }
+                self.polishJob = nil
+                self.flash("Couldn't reach Dictator. Try again.")
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        polishTimeout = t
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    /// The app answered: replace exactly what was sent with the polished text,
+    /// and arm undo to put the original back.
+    private func consumePolish() {
+        let token = SharedStore.polishResultToken
+        guard token != lastPolishToken else { return }
+        lastPolishToken = token
+        polishTimeout?.invalidate()
+        polishTimeout = nil
+        guard let job = polishJob else { return }
+        polishJob = nil
+
+        if let err = SharedStore.polishError { flash(err); return }
+        guard let polished = SharedStore.polishResult, !polished.isEmpty else {
+            flash("Couldn't polish right now. Try again.")
+            return
+        }
+        let proxy = textDocumentProxy
+        if job.isSelection {
+            proxy.insertText(polished)             // replaces the selection
+        } else {
+            // We read before + after around the cursor: jump to the end of that
+            // window, delete exactly what we read, and type the polished text.
+            if job.afterCount > 0 { proxy.adjustTextPosition(byCharacterOffset: job.afterCount) }
+            for _ in 0..<(job.beforeCount + job.afterCount) { proxy.deleteBackward() }
+            proxy.insertText(polished)
+        }
+        lastInserted = polished
+        undoRestores = job.original
+        lastUndone = nil
+        lastSwipedInsert = nil
+        undoButton.isHidden = false
+        redoButton.isHidden = true
+        render()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 }
 

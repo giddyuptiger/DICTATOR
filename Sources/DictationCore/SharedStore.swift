@@ -104,6 +104,28 @@ public enum SharedStore {
         defaults?.removeObject(forKey: Key.errorRetry)
     }
 
+    // MARK: - Polish handoff (keyboard → app → keyboard)
+
+    /// The keyboard's Polish key sends the typed text here and rings `.polish`;
+    /// the app answers with `publishPolishResult` and `.polishReady`. Tokens
+    /// change per message so each side can tell a fresh one from a stale one.
+    public static func publishPolishRequest(_ text: String) {
+        defaults?.set(text, forKey: "polishRequest")
+        defaults?.set(UUID().uuidString, forKey: "polishRequestToken")
+    }
+
+    public static var polishRequest: String? { defaults?.string(forKey: "polishRequest") }
+
+    public static func publishPolishResult(_ text: String?, error: String?) {
+        if let text { defaults?.set(text, forKey: "polishResult") } else { defaults?.removeObject(forKey: "polishResult") }
+        if let error { defaults?.set(error, forKey: "polishError") } else { defaults?.removeObject(forKey: "polishError") }
+        defaults?.set(UUID().uuidString, forKey: "polishResultToken")
+    }
+
+    public static var polishResult: String? { defaults?.string(forKey: "polishResult") }
+    public static var polishError: String? { defaults?.string(forKey: "polishError") }
+    public static var polishResultToken: String? { defaults?.string(forKey: "polishResultToken") }
+
     /// `retryable` tells the keyboard whether tapping again should ask the app to
     /// retry on the kept audio (a network blip) or is a dead end (a bad key).
     public static func publish(error: String, retryable: Bool = false) {

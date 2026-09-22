@@ -169,7 +169,11 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
 
     /// The mode goes last on purpose: where it disagrees with the field's own
     /// profile, the register the speaker chose by hand should win.
-    public func systemPrompt(dictionaryHint: String, mode: DictationMode) -> String {
+    ///
+    /// `typed` is the keyboard's Polish key: the text was typed (often swiped),
+    /// not spoken, so on top of the usual formatting the model may fix spelling,
+    /// typos, and a swipe keyboard's wrong-word guesses.
+    public func systemPrompt(dictionaryHint: String, mode: DictationMode, typed: Bool = false) -> String {
         var parts: [String]
         if mode.transformsWording {
             // Patois / Shakespearean REWRITE the words. The normal base prompt
@@ -182,9 +186,26 @@ public struct ToneProfile: Codable, Sendable, Identifiable {
             parts = [Self.base, instructions]
         }
         if !dictionaryHint.isEmpty { parts.append(dictionaryHint) }
+        if typed { parts.append(Self.typedText) }
         parts.append(mode.instructions)
         return parts.joined(separator: "\n\n")
     }
+
+    /// Appended for the Polish key. Typed text has a different failure mode from
+    /// a transcript: no "um"s, but typos, missing capitals, and — from a swipe
+    /// keyboard — whole wrong words that merely look like the intended one.
+    private static let typedText = """
+    TYPED TEXT. The text was typed by the user, not spoken, so it has typos rather \
+    than mis-hearings. On top of the rules above:
+    - Fix spelling mistakes and obvious typos.
+    - Fix a swipe keyboard's wrong-word guesses: a word that makes no sense where it \
+    sits and looks like a common word that would ("comedy stripe gays" in a sentence \
+    about a keyboard -> "coolest swipe feature"). Replace it only when the intended \
+    word is clear from the sentence; otherwise leave it.
+    - Fix capitalisation, punctuation and spacing.
+    - Keep the user's wording, tone and meaning otherwise. Do not add, remove or \
+    reorder ideas. Return the whole text, corrected.
+    """
 
     /// The base used ONLY for modes that rewrite the wording (see transformsWording).
     /// Unlike `base`, it tells the model up front that changing the words IS the job.

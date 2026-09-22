@@ -1089,6 +1089,10 @@ public final class BackgroundRecorder: ObservableObject {
             MainActor.assumeIsolated { self?.retryLastTranscription() }
         }
 
+        bridge.observe(.polish) { [weak self] in
+            MainActor.assumeIsolated { self?.polishRequested() }
+        }
+
         // Safety net. If the keyboard is dismissed mid-capture the stop tap will
         // never come, and a microphone held open by an abandoned capture is
         // exactly the thing we are trying to avoid.
@@ -1315,6 +1319,34 @@ public final class BackgroundRecorder: ObservableObject {
         // on-device cleanup is implemented but unwired (too unreliable as of 0.1.70).
         let provider: CleanupProvider = key.isEmpty ? BackendCleanup() : GroqCleanup(apiKey: key)
         return Cleaner(provider: provider, dictionary: dictionary)
+    }
+
+    /// The keyboard's Polish key (Pro): rewrite typed text in the current mode,
+    /// fixing typos and swipe mis-guesses, through the same cleanup pipeline a
+    /// dictation uses. The text arrives in the shared store; the answer goes
+    /// back the same way, with .polishReady as the doorbell.
+    private func polishRequested() {
+        guard Pro.allows(.polish) else { return }
+        guard let text = SharedStore.polishRequest,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let key = SharedStore.groqAPIKey ?? ""
+        let cleaner = makeCleaner(key: key, dictionary: PersonalDictionary.load())
+        log("polish: \(text.count) chars, mode \(DictationMode.current.displayName)")
+        Task {
+            let start = Date()
+            let result = await cleaner.process(text, profile: ToneProfile.neutral, typed: true)
+            let ms = Int(Date().timeIntervalSince(start) * 1000)
+            if result.usedProvider {
+                SharedStore.publishPolishResult(result.text, error: nil)
+                log("polish: applied (\(ms) ms)")
+            } else {
+                // The cleaner degraded to the raw text (no provider, a refusal,
+                // a network failure): nothing to replace the user's text with.
+                SharedStore.publishPolishResult(nil, error: "Couldn't polish right now. Try again.")
+                log("polish: skipped (\(result.note ?? "no provider"))")
+            }
+            DarwinBridge.shared.post(.polishReady)
+        }
     }
 
     /// Re-runs transcription on the audio kept from a failed attempt. Wired to

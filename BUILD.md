@@ -382,6 +382,30 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.117 — Polish key: rewrite what's already in the box (Pro) (2026-09-22)
+
+A wand key beside the mode button. Select text and tap it, and the selection is
+rewritten in the current mode; tap it with nothing selected and the text the
+host exposes around the cursor (for a message, the whole message) is. The
+rewrite fixes typos, a swipe keyboard's wrong-word guesses ("comedy stripe
+gays" → "coolest swipe feature" when the sentence makes the intent clear),
+punctuation and capitals, and applies the register — Formal, Expressive,
+Shakespeare — while keeping the wording and meaning. Undo puts the original
+back, so a polish is never lossy.
+
+Plumbing reuses the dictation channel: the keyboard (which never networks)
+writes the text to the shared store and rings `.polish`; the app runs the same
+`Cleaner` with a TYPED-TEXT addendum to the prompt (`ToneProfile.systemPrompt(…
+typed: true)`) and answers with `.polishReady`. Replacement is delete-backward
+over exactly the characters that were read, then one insert; a selection is
+replaced directly through `selectedText`. Limits: plain text only, no secure
+fields, and for a very long field only the window the host exposes — select
+the text to be sure.
+
+`Pro.allows(_:)` (new, DictationCore/Pro.swift) is the single entitlement gate
+for every Pro line item; it returns true until the paywall ships so testers can
+use the features, and it is the one place RevenueCat will plug in.
+
 ### 0.1.116 — swipe: a language model (2026-09-22)
 
 The one class of miss that no geometry can fix: "the new swipe feature" vs

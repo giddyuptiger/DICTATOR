@@ -42,7 +42,9 @@ public struct Cleaner: Sendable {
         self.dictionary = dictionary
     }
 
-    public func process(_ raw: String, profile: ToneProfile) async -> CleanupResult {
+    /// `typed`: the text was typed rather than dictated (the keyboard's Polish
+    /// key), so the prompt also fixes typos and swipe mis-guesses.
+    public func process(_ raw: String, profile: ToneProfile, typed: Bool = false) async -> CleanupResult {
         let start = Date()
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -55,7 +57,8 @@ public struct Cleaner: Sendable {
             return CleanupResult(text: text, usedProvider: false, latency: Date().timeIntervalSince(start), note: "no cleanup provider")
         }
 
-        let system = profile.systemPrompt(dictionaryHint: dictionary.promptHint())
+        let system = profile.systemPrompt(dictionaryHint: dictionary.promptHint(),
+                                          mode: DictationMode.current, typed: typed)
 
         do {
             let cleaned = try await provider.clean(trimmed, system: system)

@@ -26,6 +26,11 @@ public enum DarwinSignal: String, CaseIterable, Sendable {
     case keyboardShown  = "design.irons.dictator.kbshown"
     /// Keyboard → app: I am gone, release the microphone.
     case keyboardHidden = "design.irons.dictator.kbhidden"
+    /// Keyboard → app: polish the typed text waiting in the shared store
+    /// (rewrite it in the current mode, fixing typos). A Pro feature.
+    case polish         = "design.irons.dictator.polish"
+    /// App → keyboard: the polished text (or an error) is in the shared store.
+    case polishReady    = "design.irons.dictator.polished"
 
     /// App → keyboard: I am alive and the engine is warm.
     case pong           = "design.irons.dictator.pong"
