@@ -90,7 +90,7 @@ struct OnboardingView: View {
     private var fullAccessStep: some View {
         step(
             title: "About the warning you're about to see",
-            body: "Apple shows the same warning for every keyboard that can reach its app. In Dictator, Full Access lets the keyboard receive the text this app produced and reach the network. Your speech is transcribed on your iPhone; only the short cleanup step contacts our server. The keyboard never logs what you type."
+            body: "Apple shows the same warning for every keyboard that can talk to its own app. In Dictator, Full Access lets the keyboard receive the text this app produced and wake this app when it needs to. The keyboard itself never connects to the internet: your speech is transcribed on your iPhone by this app, and only its short cleanup step contacts our server. The keyboard never logs what you type."
         ) {
             nextRow(nextTitle: "Got it", enabled: true, laterAdvances: false)
         }
