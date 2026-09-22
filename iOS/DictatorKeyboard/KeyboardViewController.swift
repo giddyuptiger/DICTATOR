@@ -1882,9 +1882,11 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
         guard commit else { return }
         let centres = letterCentres()
         let keyWidth = letterKeyWidth()
+        let previous = previousWordForContext()
         let ranked = SwipeDecoder.shared.decodeRanked(path: points, centers: centres, keyWidth: keyWidth,
-                                                      startLetter: startLetter)
-        logSwipe(points: points, ranked: ranked, startLetter: startLetter, centres: centres, keyWidth: keyWidth)
+                                                      startLetter: startLetter, previousWord: previous)
+        logSwipe(points: points, ranked: ranked, startLetter: startLetter, previous: previous,
+                 centres: centres, keyWidth: keyWidth)
         guard let word = ranked.first?.word else { return }
         insertSwiped(word, shiftAtStart: shiftAtStart)
     }
@@ -1894,8 +1896,21 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
     /// first device test decoded most words wrong while every simulation of the
     /// same decoder scored above 80%, so real paths are the only way to tune it.
     /// A swipe is a rare event, so this write is nowhere near the typing hot path.
+    /// The word before the cursor as swipe keys (lowercase letters, apostrophes
+    /// dropped), the sentence-start token at the start of a field or after
+    /// ". ! ?", or nil when there is nothing usable (a number, say).
+    private func previousWordForContext() -> String? {
+        guard let before = textDocumentProxy.documentContextBeforeInput else { return SwipeDecoder.sentenceStart }
+        let trimmed = before.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = trimmed.last else { return SwipeDecoder.sentenceStart }
+        if ".!?".contains(last) { return SwipeDecoder.sentenceStart }
+        let tail = trimmed.reversed().prefix { $0.isLetter || $0 == "'" || $0 == "’" }
+        let word = String(tail.reversed()).lowercased().filter { $0.isLetter }
+        return word.isEmpty ? nil : word
+    }
+
     private func logSwipe(points: [CGPoint], ranked: [SwipeDecoder.Candidate], startLetter: Character?,
-                          centres: [Character: CGPoint], keyWidth: CGFloat) {
+                          previous: String?, centres: [Character: CGPoint], keyWidth: CGFloat) {
         if !swipeLayoutLogged {
             swipeLayoutLogged = true
             let layout = centres.keys.sorted().compactMap { ch -> String? in
@@ -1913,7 +1928,7 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
             compact.append("\(Int(p.x.rounded())),\(Int(p.y.rounded()))")
         }
         let start = startLetter.map(String.init) ?? "?"
-        SharedStore.appendSwipeLog("swipe → \(ranked.first?.word ?? "∅") [\(picks)] start=\(start) n=\(points.count) \(compact.joined(separator: ";"))")
+        SharedStore.appendSwipeLog("swipe → \(ranked.first?.word ?? "∅") [\(picks)] start=\(start) prev=\(previous ?? "-") n=\(points.count) \(compact.joined(separator: ";"))")
     }
 
     /// Insert a swiped word with QuickPath's rules: a leading space unless the

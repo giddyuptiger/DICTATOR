@@ -382,6 +382,24 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.116 — swipe: a language model (2026-09-22)
+
+The one class of miss that no geometry can fix: "the new swipe feature" vs
+"the new store gesture" — every letter of "store" lies on the swipe path for
+"swipe", in order. Only context separates them, which is how Apple's keyboard
+wins those. Norvig's count_2w.txt (286k two-word counts from the Google web
+trillion-word corpus; norvig.com is blocked from the build sandbox, a mirror in
+github.com/gjorm/WordSeg is not) is pruned by scripts/build_swipe_bigrams.py
+to pairs whose words are both in the swipe lexicon — 237k pairs, 3.6 MB of
+text, "<s>" for sentence starts — and loaded into two flat sorted arrays (about
+2.4 MB in RAM; a dictionary would cost four times that inside the keyboard's
+48 MB ceiling). The keyboard passes the word before the cursor (or the
+sentence-start token after ". ! ?" or at the start of a field); a candidate
+that commonly follows it earns up to 0.6 key widths: "this is" (10^8.2) beats
+"this us" (absent) by about 0.45 — enough to settle a neighbour-key tie, not
+enough to override a clear shape. The swipe log records prev=… per swipe, so
+the weight can be tuned against real reports.
+
 ### 0.1.115 — swipe: a log that captures the misses (2026-09-22)
 
 The first real swipe log arrived with only two swipes in it: each dictation

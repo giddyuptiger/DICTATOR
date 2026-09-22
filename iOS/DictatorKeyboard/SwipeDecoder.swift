@@ -33,11 +33,33 @@ final class SwipeDecoder {
     static let shared = SwipeDecoder()
 
     /// One dictionary word. `keys` are letter indices 0...25 along the swipe path
-    /// (repeats collapsed), `output` is what gets typed.
+    /// (repeats collapsed), `keysText` the full lowercase letters (the bigram
+    /// model's key for the word), `output` is what gets typed.
     private struct Entry {
         let keys: [Int]
+        let keysText: String
         let output: String
     }
+
+    // MARK: Context model
+
+    /// Pseudo-word for the start of a field or sentence, matching "<S>" in
+    /// Norvig's bigram counts.
+    static let sentenceStart = "<s>"
+    /// Bigram pairs from `swipe-bigrams.txt` (Norvig's Google web counts, pruned
+    /// to our lexicon by scripts/build_swipe_bigrams.py): two flat sorted arrays,
+    /// searched by binary search — about 2.4 MB for ~250k pairs, which matters in
+    /// a keyboard extension's 48 MB ceiling where a dictionary would cost 4x.
+    private var bigramKeys: [UInt64] = []        // (prevID << 32) | wordID
+    private var bigramScores: [UInt8] = []       // round(10 * log10(count))
+    private var bigramID: [String: UInt32] = [:] // keysText -> id
+    private var entryBigramID: [UInt32] = []     // per entry; UInt32.max when unknown
+    /// Bonus weight, in key widths per decade of count above the floor. "this is"
+    /// (10^8.2) beats "this us" (absent) by about 0.45 key widths — enough to
+    /// settle a neighbour-key tie, not enough to override a clear shape.
+    private static let contextWeight = 0.12
+    private static let contextFloor = 4.5
+    private static let contextCap = 5.0
 
     /// Resample count for both the drawn path and each candidate's ideal path.
     private static let samples = 40
@@ -117,8 +139,11 @@ final class SwipeDecoder {
     /// The best few candidates, best first. This is what the swipe log records,
     /// so a wrong guess shows whether the right word was a close second — the
     /// difference between a scoring problem and a lexicon problem.
+    ///   - previousWord: the word before the cursor as swipe keys (lowercase
+    ///     letters, apostrophes dropped), or `sentenceStart`; nil for no context.
     func decodeRanked(path: [CGPoint], centers: [Character: CGPoint], keyWidth: CGFloat,
-                      startLetter: Character? = nil, limit: Int = 3) -> [Candidate] {
+                      startLetter: Character? = nil, previousWord: String? = nil,
+                      limit: Int = 3) -> [Candidate] {
         guard path.count >= 2, keyWidth > 0 else { return [] }
         let startIndex = startLetter.flatMap { Self.index(of: $0) }
         loadIfNeeded()
@@ -156,6 +181,7 @@ final class SwipeDecoder {
         if lastLetters.isEmpty, nearestLast >= 0 { lastLetters = [nearestLast] }
         guard !firstLetters.isEmpty, !lastLetters.isEmpty else { return [] }
         let lastSet = Set(lastLetters)
+        let prevID = previousWord.flatMap { bigramID[$0] }
 
         var scored = [(score: Double, output: String)]()
         for f in firstLetters {
@@ -197,12 +223,21 @@ final class SwipeDecoder {
                 let lengthPenalty = abs(log((drawnLength + 0.5 * kw) / (idealLength + 0.5 * kw)))
 
                 let startMismatch = (startIndex != nil && startIndex != f) ? Self.startKeyPenalty * kw : 0
+
+                // Context: how commonly this word follows the previous one.
+                var context = 0.0
+                if let prevID, rank < entryBigramID.count, entryBigramID[rank] != UInt32.max,
+                   let s = bigramScore(prev: prevID, word: entryBigramID[rank]) {
+                    context = min(Self.contextCap, max(0, Double(s) / 10 - Self.contextFloor))
+                }
+
                 let score = shape
                     + Self.endpointWeight * endpoints
                     + Self.locationWeight * location
                     + startMismatch
                     + Self.lengthWeight * kw * lengthPenalty
                     + Self.frequencyWeight * kw * log10(Double(rank) + 1)
+                    - Self.contextWeight * kw * context
 
                 scored.append((score, entry.output))
             }
@@ -227,7 +262,47 @@ final class SwipeDecoder {
             if let e = Self.parse(line: String(line)) { list.append(e) }
         }
         entries = list
+        loadBigrams()
         rebuildBuckets()
+    }
+
+    /// Must be called with `lock` held, after the lexicon. Absent or unreadable,
+    /// the decoder simply runs without context.
+    private func loadBigrams() {
+        guard let url = Bundle.main.url(forResource: "swipe-bigrams", withExtension: "txt"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        var ids = [String: UInt32]()
+        func id(_ s: Substring) -> UInt32 {
+            let key = String(s)
+            if let i = ids[key] { return i }
+            let i = UInt32(ids.count)
+            ids[key] = i
+            return i
+        }
+        var pairs = [(key: UInt64, score: UInt8)]()
+        pairs.reserveCapacity(270_000)
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            let parts = line.split(separator: " ")
+            guard parts.count == 3, let s = UInt8(parts[2]) else { continue }
+            pairs.append(((UInt64(id(parts[0])) << 32) | UInt64(id(parts[1])), s))
+        }
+        pairs.sort { $0.key < $1.key }
+        bigramKeys = pairs.map(\.key)
+        bigramScores = pairs.map(\.score)
+        bigramID = ids
+    }
+
+    /// Binary search for a pair's score.
+    private func bigramScore(prev: UInt32, word: UInt32) -> UInt8? {
+        let target = (UInt64(prev) << 32) | UInt64(word)
+        var lo = 0, hi = bigramKeys.count - 1
+        while lo <= hi {
+            let mid = (lo + hi) >> 1
+            let k = bigramKeys[mid]
+            if k == target { return bigramScores[mid] }
+            if k < target { lo = mid + 1 } else { hi = mid - 1 }
+        }
+        return nil
     }
 
     /// Must be called with `lock` held.
@@ -237,6 +312,7 @@ final class SwipeDecoder {
             if let f = e.keys.first { buckets[f].append(i) }
         }
         byFirstLetter = buckets
+        entryBigramID = entries.map { bigramID[$0.keysText] ?? UInt32.max }
     }
 
     /// Parse one lexicon line: `word` or `keys=output`. The swipe keys must be
@@ -261,7 +337,7 @@ final class SwipeDecoder {
             if keys.last != i { keys.append(i) }             // collapse repeats: "hello" -> h e l o
         }
         guard keys.count >= 1 else { return nil }
-        return Entry(keys: keys, output: output)
+        return Entry(keys: keys, keysText: keysText.lowercased(), output: output)
     }
 
     private static func index(of ch: Character) -> Int? {
