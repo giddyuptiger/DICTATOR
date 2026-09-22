@@ -1531,12 +1531,22 @@ public final class BackgroundRecorder: ObservableObject {
                 raw = try await speech.transcribe(samples: samples)
             } catch {
                 log("transcribe failed via \(type(of: speech)): \(String(describing: error).prefix(140))")
-                // Weak-signal resilience. On a poor connection the cloud audio
-                // upload can stall and time out (a ~170 KB WAV over EDGE), while
-                // the tiny cleanup text still gets through. If that happens and the
-                // on-device model is already loaded, transcribe locally so the user
-                // still gets their words instead of a dead end.
-                if !(speech is LocalParakeet), modelStatus == .ready {
+                // Resilience: whichever engine failed, try the OTHER one before
+                // giving up, so a single engine's hiccup is never a dead end.
+                if speech is LocalParakeet {
+                    // On-device rejected the clip (e.g. FluidAudio invalidAudioData).
+                    // The audio itself is fine — send it to the cloud, which handles
+                    // it. Without this the user got a dead end mislabeled as a
+                    // server error and a retry that kept failing.
+                    log("on-device transcription failed; falling back to cloud")
+                    let cloud: SpeechProvider = key.isEmpty
+                        ? BackendTranscription(biasTerms: bias)
+                        : GroqTranscription(apiKey: key, biasTerms: bias)
+                    raw = try await cloud.transcribe(samples: samples)
+                } else if modelStatus == .ready {
+                    // Weak-signal resilience: a cloud upload can stall on a poor
+                    // connection while the tiny cleanup text still gets through. If
+                    // the local model is loaded, transcribe on-device instead.
                     log("cloud transcription failed; falling back to on-device")
                     raw = try await localSpeech.transcribe(samples: samples)
                 } else {
