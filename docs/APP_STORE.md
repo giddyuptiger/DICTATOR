@@ -106,7 +106,9 @@ download on first use (requires network once, then works offline).
 
 ## Screenshots plan (6.7" + 6.1" required; iPad optional)
 
-Capture on device (I can't generate these):
+Capture the raw phone screenshots on device, then compose the App Store cards
+with the generator in `fastlane/screenshots/src/` (one command per card, see
+`make.py`; it renders 1284×2778 and refuses any price word — guideline 2.3.7):
 1. The keyboard mid-dictation (mic active, waveform) in Messages.
 2. Before/after: raw speech vs. cleaned, formatted result.
 3. The mode picker (Casual / Formal / Expressive / Emoji).
