@@ -105,11 +105,25 @@ final class SwipeDecoder {
     ///     "gesture" when the finger lands near a key edge.
     func decode(path: [CGPoint], centers: [Character: CGPoint], keyWidth: CGFloat,
                 startLetter: Character? = nil) -> String? {
-        guard path.count >= 2, keyWidth > 0 else { return nil }
+        decodeRanked(path: path, centers: centers, keyWidth: keyWidth, startLetter: startLetter).first?.word
+    }
+
+    /// A ranked candidate: the word and its score in key widths (lower is better).
+    struct Candidate {
+        let word: String
+        let score: Double
+    }
+
+    /// The best few candidates, best first. This is what the swipe log records,
+    /// so a wrong guess shows whether the right word was a close second — the
+    /// difference between a scoring problem and a lexicon problem.
+    func decodeRanked(path: [CGPoint], centers: [Character: CGPoint], keyWidth: CGFloat,
+                      startLetter: Character? = nil, limit: Int = 3) -> [Candidate] {
+        guard path.count >= 2, keyWidth > 0 else { return [] }
         let startIndex = startLetter.flatMap { Self.index(of: $0) }
         loadIfNeeded()
         lock.lock(); defer { lock.unlock() }
-        guard !entries.isEmpty else { return nil }
+        guard !entries.isEmpty else { return [] }
 
         let kw = Double(keyWidth)
         var centre = [CGPoint?](repeating: nil, count: 26)
@@ -119,7 +133,7 @@ final class SwipeDecoder {
 
         let drawn = Self.resample(path, count: Self.samples)
         let drawnLength = Self.length(of: path)
-        guard let first = path.first, let last = path.last else { return nil }
+        guard let first = path.first, let last = path.last else { return [] }
 
         // Which letters could the path have started / ended on? Always at least
         // the nearest one: a lift that lands a little below the bottom row (over
@@ -140,10 +154,10 @@ final class SwipeDecoder {
         }
         if firstLetters.isEmpty, nearestFirst >= 0 { firstLetters = [nearestFirst] }
         if lastLetters.isEmpty, nearestLast >= 0 { lastLetters = [nearestLast] }
-        guard !firstLetters.isEmpty, !lastLetters.isEmpty else { return nil }
+        guard !firstLetters.isEmpty, !lastLetters.isEmpty else { return [] }
         let lastSet = Set(lastLetters)
 
-        var best: (score: Double, output: String)?
+        var scored = [(score: Double, output: String)]()
         for f in firstLetters {
             for rank in byFirstLetter[f] {
                 let entry = entries[rank]
@@ -190,12 +204,13 @@ final class SwipeDecoder {
                     + Self.lengthWeight * kw * lengthPenalty
                     + Self.frequencyWeight * kw * log10(Double(rank) + 1)
 
-                if best == nil || score < best!.score {
-                    best = (score, entry.output)
-                }
+                scored.append((score, entry.output))
             }
         }
-        return best?.output
+        // A few hundred candidates at most; sorting is nothing next to scoring.
+        return scored.sorted { $0.score < $1.score }
+            .prefix(max(1, limit))
+            .map { Candidate(word: $0.output, score: $0.score / kw) }
     }
 
     // MARK: - Lexicon

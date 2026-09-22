@@ -1464,6 +1464,9 @@ final class KeyboardViewController: UIInputViewController {
         if let swiped = lastSwipedInsert,
            let before = textDocumentProxy.documentContextBeforeInput, before.hasSuffix(swiped) {
             for _ in 0..<swiped.count { textDocumentProxy.deleteBackward() }
+            // A taken-back swipe is the one wrong-guess signal that needs no
+            // effort from the user; the log pairs it with the swipe above it.
+            SharedStore.appendSwipeLog("swipe-undo \(swiped.trimmingCharacters(in: .whitespaces))")
         } else {
             textDocumentProxy.deleteBackward()
         }
@@ -1879,10 +1882,10 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
         guard commit else { return }
         let centres = letterCentres()
         let keyWidth = letterKeyWidth()
-        let word = SwipeDecoder.shared.decode(path: points, centers: centres, keyWidth: keyWidth,
-                                              startLetter: startLetter)
-        logSwipe(points: points, word: word, centres: centres, keyWidth: keyWidth)
-        guard let word else { return }
+        let ranked = SwipeDecoder.shared.decodeRanked(path: points, centers: centres, keyWidth: keyWidth,
+                                                      startLetter: startLetter)
+        logSwipe(points: points, ranked: ranked, startLetter: startLetter, centres: centres, keyWidth: keyWidth)
+        guard let word = ranked.first?.word else { return }
         insertSwiped(word, shiftAtStart: shiftAtStart)
     }
 
@@ -1891,22 +1894,26 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
     /// first device test decoded most words wrong while every simulation of the
     /// same decoder scored above 80%, so real paths are the only way to tune it.
     /// A swipe is a rare event, so this write is nowhere near the typing hot path.
-    private func logSwipe(points: [CGPoint], word: String?, centres: [Character: CGPoint], keyWidth: CGFloat) {
+    private func logSwipe(points: [CGPoint], ranked: [SwipeDecoder.Candidate], startLetter: Character?,
+                          centres: [Character: CGPoint], keyWidth: CGFloat) {
         if !swipeLayoutLogged {
             swipeLayoutLogged = true
             let layout = centres.keys.sorted().compactMap { ch -> String? in
                 guard let c = centres[ch] else { return nil }
                 return "\(ch)=\(Int(c.x.rounded())),\(Int(c.y.rounded()))"
             }.joined(separator: " ")
-            SharedStore.appendLog("swipe-layout kw=\(Int(keyWidth.rounded())) \(layout)")
+            SharedStore.appendSwipeLog("swipe-layout kw=\(Int(keyWidth.rounded())) \(layout)")
         }
-        // At most ~120 points per line; the log keeps 60 lines.
+        // The pick, the runners-up with their scores (key widths, lower is
+        // better), the key the touch-down typed, and the path (~120 points max).
+        let picks = ranked.map { "\($0.word):\(String(format: "%.2f", $0.score))" }.joined(separator: " ")
         let step = max(1, points.count / 120)
         var compact = [String]()
         for (i, p) in points.enumerated() where i % step == 0 || i == points.count - 1 {
             compact.append("\(Int(p.x.rounded())),\(Int(p.y.rounded()))")
         }
-        SharedStore.appendLog("swipe → \(word ?? "∅") n=\(points.count) \(compact.joined(separator: ";"))")
+        let start = startLetter.map(String.init) ?? "?"
+        SharedStore.appendSwipeLog("swipe → \(ranked.first?.word ?? "∅") [\(picks)] start=\(start) n=\(points.count) \(compact.joined(separator: ";"))")
     }
 
     /// Insert a swiped word with QuickPath's rules: a leading space unless the

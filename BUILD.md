@@ -382,6 +382,27 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.115 — swipe: a log that captures the misses (2026-09-22)
+
+The first real swipe log arrived with only two swipes in it: each dictation
+writes about five activity lines, so the garbled test sentence's swipes had
+been pushed out of the 60-line log before it was shared. Replaying the two
+that survived through an exact copy of the decoder reproduced the device's
+picks ("they", "life") with clear margins — and taught two things no
+simulation had: the keyboard's real geometry (key width 38, keys 44 apart,
+rows 54 apart), and where a thumb actually goes (lift 29 pt above the top row;
+a middle-row sweep where the word's "e" sits on the top row). "they" still
+won, so the decoder is more robust than the garbled sentence suggested; the
+failures simply were not captured.
+
+So swipes now get their own 150-entry log (`SharedStore.appendSwipeLog`),
+included in Details → Report a problem. Each entry records the pick, the
+top-3 candidates with scores (key widths, lower is better), the key the
+touch-down typed, and the path; a one-backspace takeback writes `swipe-undo`,
+the one wrong-guess signal that costs the user nothing. The start-letter
+prior now anchors on the key that actually typed the letter (the keyboard's
+own gap-snapping hit-test).
+
 ### 0.1.114 — swipe: spaces after a swiped word, start-key prior, cleaner lexicon (2026-09-22)
 
 Second and third real-device sentences. First one: 7 of 10 words right and

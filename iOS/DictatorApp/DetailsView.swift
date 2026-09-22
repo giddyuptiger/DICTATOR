@@ -72,6 +72,14 @@ struct DetailsView: View {
             "Activity:"
         ]
         lines.append(contentsOf: recorder.eventLog)
+        // Swipe typing keeps its own log (dictations would push swipes out of
+        // the activity log); it goes in the same report.
+        let swipes = SharedStore.swipeLogLines
+        if !swipes.isEmpty {
+            lines.append("")
+            lines.append("Swipes (newest first):")
+            lines.append(contentsOf: swipes)
+        }
         return lines.joined(separator: "\n")
     }
 

@@ -73,6 +73,18 @@ public enum SharedStore {
 
     public static func clearLog() { defaults?.removeObject(forKey: "logLines") }
 
+    /// Swipe-typing diagnostics, kept apart from the activity log: a dictation
+    /// writes about five activity lines, so a few of them pushed every swipe
+    /// out of the 60-line log before it could be reported. 150 entries.
+    public static func appendSwipeLog(_ line: String) {
+        var lines = defaults?.stringArray(forKey: "swipeLogLines") ?? []
+        lines.insert(line, at: 0)
+        if lines.count > 150 { lines.removeLast(lines.count - 150) }
+        defaults?.set(lines, forKey: "swipeLogLines")
+    }
+
+    public static var swipeLogLines: [String] { defaults?.stringArray(forKey: "swipeLogLines") ?? [] }
+
     /// Seconds since the app last stamped its state. Large means it is gone.
     public static var secondsSinceLive: TimeInterval {
         let at = defaults?.double(forKey: Key.liveAt) ?? 0
