@@ -771,6 +771,7 @@ final class KeyboardViewController: UIInputViewController {
     /// one thing to undo.
     @discardableResult
     private func insert(_ text: String) -> String {
+        lastSwipedInsert = nil
         let proxy = textDocumentProxy
         let before = proxy.documentContextBeforeInput
 
@@ -1022,6 +1023,9 @@ final class KeyboardViewController: UIInputViewController {
     /// key-down was that touch's, and nothing else was typed in between.
     private var keyDownSeq = 0
     private var lastKeyDownButton: UIButton?
+    /// What the last swipe inserted (leading space included), so the next
+    /// backspace can take the whole word back. Cleared by any other key.
+    private var lastSwipedInsert: String?
     private let swipeRecognizer = UIPanGestureRecognizer()
     private let swipeTrail = CAShapeLayer()
     private var glide = GlideState()
@@ -1333,6 +1337,7 @@ final class KeyboardViewController: UIInputViewController {
         // so the swipe handler can prove nothing else was typed since.
         keyDownSeq &+= 1
         lastKeyDownButton = sender
+        lastSwipedInsert = nil
         lastKeyTime = Date()
         sender.backgroundColor = palette.keyPressed
     }
@@ -1371,11 +1376,13 @@ final class KeyboardViewController: UIInputViewController {
 
     /// Insert a tapped emoji. Recents are recorded inside EmojiKeyboardView.
     private func insertEmoji(_ emoji: String) {
+        lastSwipedInsert = nil
         textDocumentProxy.insertText(emoji)
         lastKeyTime = Date()
     }
 
     @objc private func spaceTapped() {
+        lastSwipedInsert = nil
         // Double space becomes ". ", matching the system keyboard.
         let now = Date()
         if now.timeIntervalSince(lastSpaceTap) < 0.3,
@@ -1391,6 +1398,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func returnTapped() {
+        lastSwipedInsert = nil
         textDocumentProxy.insertText("\n")
     }
 
@@ -1436,7 +1444,18 @@ final class KeyboardViewController: UIInputViewController {
     @objc private func deleteDown(_ sender: UIButton) {
         sender.backgroundColor = palette.specialPressed
         // The one deletion a tap performs, on touch-down like every other key.
-        textDocumentProxy.deleteBackward()
+        // Right after a swiped word, one backspace takes back the WHOLE word (and
+        // the space the swipe added), as Apple's keyboard does, so a wrong guess
+        // costs one tap rather than one per letter. Only while the text still
+        // ends with exactly what the swipe inserted; anything typed since makes
+        // this an ordinary single-character delete.
+        if let swiped = lastSwipedInsert,
+           let before = textDocumentProxy.documentContextBeforeInput, before.hasSuffix(swiped) {
+            for _ in 0..<swiped.count { textDocumentProxy.deleteBackward() }
+        } else {
+            textDocumentProxy.deleteBackward()
+        }
+        lastSwipedInsert = nil
         deleteRepeat?.invalidate()
         deleteTicks = 0
         // Hold to repeat, after a short grace period, then ACCELERATE and switch
@@ -1711,9 +1730,11 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
         var active = false
     }
 
-    /// Off switch for anyone who finds swipe typing gets in the way — an App Group
-    /// flag the app can expose in Settings. Read on plane changes, never per key.
-    private var swipeTypingEnabled: Bool { !SharedStore.boolFlag("swipeTypingDisabled") }
+    /// The one gate for swipe typing: the Settings switch today, and — when Pro
+    /// ships — the place to also require the entitlement (swipe typing is a Pro
+    /// line item; Apple's keyboard has it, Wispr's does not). Read on plane
+    /// changes, never per key.
+    private var swipeTypingEnabled: Bool { SharedStore.swipeTypingEnabled }
 
     private func setUpSwipeTyping() {
         swipeRecognizer.addTarget(self, action: #selector(glidePan(_:)))
@@ -1863,6 +1884,7 @@ extension KeyboardViewController: UIGestureRecognizerDelegate {
         case .off:    if sentenceStart { out = capitalised(out) }
         }
         proxy.insertText(out)
+        lastSwipedInsert = out
         lastKeyTime = Date()
         if shift == .once { shift = .off }
     }

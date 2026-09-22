@@ -206,6 +206,14 @@ public enum SharedStore {
 
     /// Tiny generic one-time-flag helpers (e.g. the first_dictation marker used by
     /// `Analytics.trackOnce`).
+    /// Swipe (glide) typing on the keyboard. On by default; stored inverted so a
+    /// fresh install, with no value written yet, reads as enabled. Read by the
+    /// keyboard on plane changes, written by the app's Settings.
+    public static var swipeTypingEnabled: Bool {
+        get { !(defaults?.bool(forKey: "swipeTypingDisabled") ?? false) }
+        set { defaults?.set(!newValue, forKey: "swipeTypingDisabled") }
+    }
+
     static func boolFlag(_ key: String) -> Bool { defaults?.bool(forKey: key) ?? false }
     static func setBoolFlag(_ key: String, _ value: Bool) { defaults?.set(value, forKey: key) }
 

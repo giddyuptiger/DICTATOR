@@ -402,9 +402,14 @@ location channel (every letter must lie near the path) + mild length and
 frequency priors. Simulated top-1 accuracy 82–84% at realistic noise; every
 common word tested decodes correctly. Insertion follows QuickPath: leading space
 unless after whitespace or an opener, capitalised per the shift state at touch
-start or a sentence boundary the auto-space created. Off switch: the App Group
-flag `swipeTypingDisabled` (not yet surfaced in Settings). Not device-verified
-yet: this build is for that test.
+start or a sentence boundary the auto-space created. Two things Apple's
+keyboard does that make swipe feel finished, both included: one backspace right
+after a swiped word takes the whole word back (the space it added too), and a
+Settings switch (Settings → Keyboard → "Swipe to type", on by default) for
+anyone who finds it catches their tapping. `SharedStore.swipeTypingEnabled` is
+the single gate; when Pro ships, that is the one place to also require the
+entitlement (swipe typing is a Pro line item — Wispr's keyboard has no swipe).
+Not device-verified yet: this build is for that test.
 
 ### 0.1.95 — make Patois/Shakespearean actually transform (2026-09-19)
 

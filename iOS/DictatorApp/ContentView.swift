@@ -80,6 +80,7 @@ struct ContentView: View {
 
     @State private var idleMinutes = SharedStore.idleReleaseMinutes
     @State private var engine: TranscriptionEngine = SharedStore.transcriptionEngine
+    @State private var swipeTyping = SharedStore.swipeTypingEnabled
 
     // Live setup checklist, refreshed on appear and when the app returns.
     @State private var keyboardAdded = false
@@ -126,6 +127,7 @@ struct ContentView: View {
             SharedStore.migrateMusicHoldIfNeeded()   // idempotent; ensures the picker shows the corrected value
             idleMinutes = SharedStore.idleReleaseMinutes
             engine = SharedStore.transcriptionEngine
+            swipeTyping = SharedStore.swipeTypingEnabled
             refreshChecklist()
             dictionary.reload()
             if !SharedStore.onboardingDone {
@@ -612,6 +614,7 @@ struct ContentView: View {
                 VStack(spacing: 22) {
                     transcriptionSection
                     micHoldSection
+                    keyboardSection
                     setupSection
                     aboutSection
                 }
@@ -683,6 +686,20 @@ struct ContentView: View {
         default:
             let label = idleMinutes >= 60 ? "\(idleMinutes / 60) hours" : "\(idleMinutes) minutes"
             return "After \(label) without dictating, Dictator releases the microphone to save battery. Waking it again means opening this app and swiping back, so pick a longer window if that happens often."
+        }
+    }
+
+    /// Swipe (glide) typing on the Dictator keyboard. On by default; the switch is
+    /// here for anyone who finds it catches their fast tapping. The keyboard reads
+    /// the flag whenever it shows the letters, so a change applies immediately.
+    private var keyboardSection: some View {
+        section("Keyboard") {
+            Toggle("Swipe to type", isOn: $swipeTyping)
+                .onChange(of: swipeTyping) { _, new in SharedStore.swipeTypingEnabled = new }
+            Text("Slide your finger from letter to letter to type a word, the way the iPhone keyboard does. Tapping works as before. Turn this off if it gets in the way.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
