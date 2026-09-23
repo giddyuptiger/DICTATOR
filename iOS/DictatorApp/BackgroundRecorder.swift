@@ -171,6 +171,10 @@ final class AudioEngineHost: @unchecked Sendable {
                 mode: .default,
                 options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP]
             )
+            // Alarms and timers used to interrupt the session, which ends the
+            // warm state until the app is opened (docs/STAYING_AWAKE.md §7.6).
+            // Best effort; an incoming call still interrupts.
+            try? session.setPrefersNoInterruptionsFromSystemAlerts(true)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             throw StartError.session(error)
@@ -303,6 +307,36 @@ final class AudioEngineHost: @unchecked Sendable {
     var isSilenceRunning: Bool { silenceRunning && silenceEngine.isRunning && silence.isPlaying }
 
     /// Full teardown, user-initiated only.
+    /// Restart the input engine WITHOUT touching the audio session (0.1.124
+    /// experiment, docs/STAYING_AWAKE.md §7.2). Apple says a recording session
+    /// cannot be activated from the background; this path never activates one.
+    /// It only restarts the engine graph on a session that may still be active,
+    /// which is the situation after a route change and possibly after some
+    /// interruptions. Throws when iOS refuses; the caller logs the answer.
+    func restartInputKeepingSession() throws {
+        try engineQ.sync {
+            if inputEngine.isRunning { return }
+            let input = inputEngine.inputNode
+            lock.lock(); converter = nil; lock.unlock()
+            input.removeTap(onBus: 0)
+            input.installTap(onBus: 0, bufferSize: 2048, format: nil) { [weak self] buf, _ in
+                self?.handle(buf)
+            }
+            do {
+                inputEngine.prepare()
+                try inputEngine.start()
+            } catch {
+                input.removeTap(onBus: 0)
+                running = false
+                throw StartError.engine(error)
+            }
+            running = true
+            if !(silenceRunning && silenceEngine.isRunning && silence.isPlaying) {
+                do { try _startSilence() } catch { silenceRunning = false }
+            }
+        }
+    }
+
     func stopEverything() {
         engineQ.sync { _stopEverything() }
     }
@@ -482,6 +516,10 @@ public final class BackgroundRecorder: ObservableObject {
     /// release costs one tap, which is the accepted price of not holding the mic
     /// (and the orange indicator) open all day.
     private var idleWindow: TimeInterval { TimeInterval(SharedStore.idleReleaseMinutes) * 60 }
+    /// True between the keyboard's .keyboardShown and .keyboardHidden signals.
+    /// The idle release does not run while the keyboard is up (0.1.124): Wispr
+    /// counts only keyboard-inactive time, and so do we now.
+    private var keyboardVisible = false
     /// Whether the app is foregrounded. A dead engine can only be rebuilt while
     /// foregrounded (iOS refuses to start mic input from the background), so the
     /// health check and the interruption handlers only rebuild when this is true;
@@ -590,7 +628,7 @@ public final class BackgroundRecorder: ObservableObject {
             }
         }
 
-        log("warm: starting mic engine (foreground)")
+        log("warm: starting mic engine (\(isForeground ? "foreground" : "background"))")
         let host = audio
 
         // Warm-up gets refused when another app is holding the microphone
@@ -684,8 +722,9 @@ public final class BackgroundRecorder: ObservableObject {
             // Protect residency instead and rebuild on the next foreground,
             // which already calls resync.
             guard isForeground else {
-                log("resync deferred: backgrounded, keeping the app alive instead")
-                audio.ensureSilenceAlive()
+                log("resync: backgrounded; trying the mic once, else sleeping")
+                SharedStore.setLiveState("cold")
+                await attemptBackgroundMicRestart(reason: "capture on a dead mic")
                 return
             }
             // Cooldown: never rebuild more than once every few seconds. This is a
@@ -752,12 +791,14 @@ public final class BackgroundRecorder: ObservableObject {
                 if type == .ended {
                     self.audioInterrupted = false
                     self.log("audio interruption ended; rebuilding")
-                    // Regain residency immediately — playback can restart from the
-                    // background, so this works even when we are not foregrounded.
-                    self.audio.ensureSilenceAlive()
-                    // The mic can only restart in the foreground; do the full
-                    // rebuild there.
-                    if self.isForeground { Task { await self.resync() } }
+                    if self.isForeground {
+                        Task { await self.resync() }
+                    } else {
+                        // One logged attempt to bring the mic back without the
+                        // app being opened; if refused, the app sleeps instead of
+                        // holding a mic-less process resident (§7.2, §7.4b).
+                        Task { await self.attemptBackgroundMicRestart(reason: "interruption ended") }
+                    }
                 } else {
                     // A call (or other app) has taken the mic. Stop trying to warm
                     // until it ends — otherwise we loop on 561017449 and strand the
@@ -782,7 +823,13 @@ public final class BackgroundRecorder: ObservableObject {
         nc.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.state != .cold else { return }
-                self.audio.ensureSilenceAlive()
+                if self.audio.isRunning {
+                    self.audio.ensureSilenceAlive()
+                } else if !self.isForeground {
+                    // A route change stops both engines; try to restart the input
+                    // on the still-active session (the case with the best odds).
+                    Task { await self.attemptBackgroundMicRestart(reason: "route change") }
+                }
             }
         }
 
@@ -790,8 +837,8 @@ public final class BackgroundRecorder: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.log("media services reset; rebuilding")
-                self.audio.ensureSilenceAlive()   // best-effort residency from bg
                 if self.isForeground { Task { await self.resync() } }
+                else { Task { await self.attemptBackgroundMicRestart(reason: "media services reset") } }
             }
         }
     }
@@ -869,14 +916,26 @@ public final class BackgroundRecorder: ObservableObject {
                 // rebuild — but only while foregrounded, and `resync` is rate-
                 // limited so a flapping engine can never turn this 2 s tick into a
                 // rebuild loop (which pops the speaker and wrecks capture).
-                if self.state == .warm, !self.audio.isRunning, self.isForeground, !self.audioInterrupted {
-                    self.log("heartbeat: engine not running; rebuilding")
-                    Task { await self.resync() }
+                if self.state == .warm, !self.audio.isRunning, !self.audioInterrupted {
+                    if self.isForeground {
+                        self.log("heartbeat: engine not running; rebuilding")
+                        Task { await self.resync() }
+                        return
+                    }
+                    // Backgrounded with a dead mic. One logged restart attempt
+                    // (rate-limited); otherwise the app sleeps: a resident process
+                    // that cannot record serves nothing, and the keyboard's URL
+                    // open launches a suspended app just as well
+                    // (docs/STAYING_AWAKE.md §7.4b). Stamp the truth meanwhile.
+                    SharedStore.setLiveState("cold")
+                    Task { await self.attemptBackgroundMicRestart(reason: "heartbeat") }
                     return
                 }
-                // A call has the mic — don't try to rebuild or keep-alive; both fail
-                // on 561017449 until it ends. The interruption-ended handler recovers.
-                if self.audioInterrupted { return }
+                // A call has the mic. Don't rebuild or keep-alive (both fail until it
+                // ends); instead probe every 10 s, because the .ended event often
+                // never arrives (§3.3) and the app would otherwise believe a call is
+                // in progress until it was opened.
+                if self.audioInterrupted { self.probeInterruption(); return }
                 // RESIDENCY. The silent player is the only thing stopping iOS
                 // suspending us, and nothing was watching it — the two checks
                 // above watch the MICROPHONE engine, which can be perfectly
@@ -921,6 +980,59 @@ public final class BackgroundRecorder: ObservableObject {
     /// audio non-mixably), retrying on every 2 s tick would churn the audio
     /// session for nothing. Every 10 s is often enough to recover within one
     /// dictation and rare enough to be free.
+    private var lastBackgroundRestartAt: Date?
+    private var lastInterruptionProbeAt: Date?
+
+    /// 0.1.124 experiment (docs/STAYING_AWAKE.md §7.2, §7.4b). Apple's engineers
+    /// say a recording session cannot be activated from the background, so the
+    /// expected answer is "refused". This never activates a session: it restarts
+    /// the engine graph on whatever session is still active, which is the one
+    /// case with a chance (after a route change; maybe after some interruptions).
+    /// Either way the log says what happened. On refusal the app lets go of the
+    /// keep-alive and sleeps; the next foreground rebuilds everything as before.
+    private func attemptBackgroundMicRestart(reason: String) async {
+        guard !isForeground, state == .warm, !audio.isRunning, !audioInterrupted, !isWarming else { return }
+        if let last = lastBackgroundRestartAt, Date().timeIntervalSince(last) < 30 { return }
+        lastBackgroundRestartAt = Date()
+        let host = audio
+        do {
+            try await withWarmUpTimeout(seconds: 5) { try host.restartInputKeepingSession() }
+            if host.isRunning {
+                log("bg mic restart (\(reason)): OK — the mic came back without opening the app")
+                SharedStore.setLiveState(state.shortName)
+                SharedStore.setEngineWarm(true)
+                bumpIdleTimer()
+                return
+            }
+            log("bg mic restart (\(reason)): engine did not come up")
+        } catch {
+            let (message, _) = warmUpFailure(error)
+            log("bg mic restart (\(reason)): refused — \(message)")
+        }
+        // Refused. Sleep rather than hold a mic-less process resident.
+        log("mic needs the app opened; letting the app sleep")
+        stopLevelTimer()
+        heartbeat?.invalidate(); heartbeat = nil
+        idleTimer?.invalidate(); idleTimer = nil
+        Task.detached(priority: .utility) { host.stopEverything() }
+        SharedStore.setEngineWarm(false)
+        SharedStore.setLiveState("cold")
+        state = .failed("Open Dictator once to restart the mic")
+    }
+
+    /// While `audioInterrupted` is set, ask the hardware every 10 s whether the
+    /// interruption is really over (§7.3). `micAvailableNow` activates the record
+    /// session; during a real call that throws 561017449 and is harmless.
+    private func probeInterruption() {
+        if let last = lastInterruptionProbeAt, Date().timeIntervalSince(last) < 10 { return }
+        lastInterruptionProbeAt = Date()
+        guard micAvailableNow() else { return }
+        audioInterrupted = false
+        log("interruption over (probe; no .ended arrived)")
+        if isForeground { Task { await resync() } }
+        else { Task { await attemptBackgroundMicRestart(reason: "probe") } }
+    }
+
     private func checkKeepAlive() {
         let up = audio.isSilenceRunning
         defer { keepAliveWasUp = up }
@@ -1024,6 +1136,11 @@ public final class BackgroundRecorder: ObservableObject {
     private func releaseIfIdle() {
         guard state == .warm, idleWindow > 0 else { return }
         if isForeground { bumpIdleTimer(); return }   // still here — keep it warm
+        // The keyboard is up (or was within the last few seconds): the user is
+        // using Dictator even if they have not dictated. Count again from now.
+        if keyboardVisible || SharedStore.secondsSinceKeyboardVisible < 15 {
+            bumpIdleTimer(); return
+        }
         log("mic released after \(SharedStore.idleReleaseMinutes)m idle")
         stopLevelTimer()
         heartbeat?.invalidate(); heartbeat = nil
@@ -1098,10 +1215,19 @@ public final class BackgroundRecorder: ObservableObject {
         // exactly the thing we are trying to avoid.
         bridge.observe(.keyboardHidden) { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, self.state == .capturing else { return }
+                guard let self else { return }
+                // The countdown to the idle release starts when the keyboard
+                // goes away, not when the last dictation ended.
+                self.keyboardVisible = false
+                self.bumpIdleTimer()
+                guard self.state == .capturing else { return }
                 self.log("keyboard dismissed mid-capture")
                 self.endCapture()
             }
+        }
+
+        bridge.observe(.keyboardShown) { [weak self] in
+            MainActor.assumeIsolated { self?.keyboardVisible = true }
         }
 
         log("listening for keyboard")

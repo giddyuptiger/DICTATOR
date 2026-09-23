@@ -382,6 +382,38 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.124 — staying awake, batch one (2026-09-23)
+
+The first batch from docs/STAYING_AWAKE.md, plus a pass over the places where a
+skipped beat used to turn into "Open Dictator".
+
+- **The idle release counts keyboard-inactive time.** The keyboard posts
+  `.keyboardShown` on appear and stamps "visible" every second while up; the app
+  pauses the countdown while the stamp is fresh and restarts it on
+  `.keyboardHidden`. Typing all afternoon no longer releases the mic at the
+  30-minute mark. (Wispr's rule.)
+- **No interruptions from alarms and timers**:
+  `setPrefersNoInterruptionsFromSystemAlerts(true)`. Calls still interrupt.
+- **One logged attempt to bring the mic back in the background.** After an
+  interruption ends, after a route change, on a heartbeat that finds the mic
+  dead, or when the keyboard taps a dead mic: `restartInputKeepingSession()`
+  restarts the engine graph without activating a session (Apple says activation
+  from the background is refused; a still-active session may allow the restart).
+  Rate-limited to one try per 30 s. The log says `bg mic restart (...): OK` or
+  `refused — <reason>`. Jeremy's next report settles §7.2 of the document.
+- **When the mic is dead in the background, the app sleeps.** No more silent
+  keep-alive holding a mic-less process resident (a 2.5.4 rejection pattern and
+  useless: the keyboard's URL open launches a suspended app just as well). The
+  app stamps `cold` first so the keyboard shows the wake pill immediately.
+- **Interruptions that never end are probed.** Every 10 s while interrupted the
+  app tries to activate the record session; success clears the flag (`interruption
+  over (probe; no .ended arrived)`) and runs the restart attempt.
+- **The keyboard stops tripping over itself.** "App gone" now means ten seconds
+  without a heartbeat, not six, and a working pill is demoted only on the second
+  stale check in a row. A capture that nobody picked up within two seconds is
+  knocked once more (three seconds) when the app is still stamping, before the
+  wake pill appears.
+
 ### 0.1.123 — Polish: its own prompt, the strong model, safe repeated taps (2026-09-23)
 
 "Okay, legs, try this feature or and see how our works!" came back from

@@ -283,6 +283,10 @@ final class KeyboardViewController: UIInputViewController {
         refreshMode()
         refreshReturnKey()   // the return key's label/colour depends on this field's returnKeyType
         startModeWatch()
+        // Using the keyboard is using Dictator: the app pauses its idle release
+        // while this stamp is fresh (see modeWatch, which renews it every second).
+        SharedStore.stampKeyboardVisible()
+        DarwinBridge.shared.post(.keyboardShown)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -366,6 +370,7 @@ final class KeyboardViewController: UIInputViewController {
         let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                SharedStore.stampKeyboardVisible()
                 switch self.mode {
                 case .recording:
                     // The app can end a capture on its own — at the 5-minute cap
@@ -378,7 +383,7 @@ final class KeyboardViewController: UIInputViewController {
                         UINotificationFeedbackGenerator().notificationOccurred(.warning)
                         self.mode = .working
                         self.waitForResult(hardCap: Date().addingTimeInterval(180))
-                    } else if SharedStore.secondsSinceLive > 6 {
+                    } else if SharedStore.secondsSinceLive > Self.liveStale {
                         self.wakeMessage = "Dictator stopped mid-recording. Reopen it to recover your recording."
                         self.mode = .needsSession
                     }
@@ -429,13 +434,22 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// The app is considered alive if it stamped the App Group recently. The
-    /// heartbeat runs every two seconds, so six seconds of silence means gone.
+    /// heartbeat runs every two seconds. Ten seconds of silence means gone:
+    /// six was tight enough that a timer coalesced in the background, or a
+    /// busy main thread, read as a dead app and put the wake pill up for
+    /// nothing (0.1.124). The cost of the wider window is that a really dead
+    /// app is noticed four seconds later, which nobody can feel.
     /// Alive means the process is resident and can open the microphone on
     /// demand. It does not mean the microphone is open: it is not, until you tap.
+    private static let liveStale: TimeInterval = 10
     private var appIsAlive: Bool {
         let s = SharedStore.liveState
-        return s != nil && s != "cold" && SharedStore.secondsSinceLive < 6
+        return s != nil && s != "cold" && SharedStore.secondsSinceLive < Self.liveStale
     }
+    /// Consecutive mode checks that found the app stale, for hysteresis: a
+    /// working pill is demoted to "wake" only on the second stale check in a
+    /// row, never on a single skipped beat.
+    private var staleTicks = 0
 
     private func refreshMode() {
         // A live, reachable app proves the App Group + Darwin path works — which
@@ -450,10 +464,13 @@ final class KeyboardViewController: UIInputViewController {
         // key: the container app always has a path (on-device, or the backend
         // proxy). A live, reachable app is all this keyboard requires.
         if appIsAlive {
+            staleTicks = 0
             wakeMessage = nil   // a live app clears any stale "couldn't open" note
             mode = .ready
             return
         }
+        staleTicks += 1
+        if mode == .ready, staleTicks < 2 { return }   // one skipped beat is not a death
         // The app is not answering. Point at the most useful fix: without Full
         // Access the app also can't be launched from here, so surface that first;
         // then, if the user has never finished first-run setup, send them to do
@@ -489,8 +506,11 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    private var captureRetried = false
+
     private func startRecording() {
         mode = .starting
+        captureRetried = false
         DarwinBridge.shared.post(.startRecording)
 
         // Confirmation comes from the App Group, not from a Darwin reply. A
@@ -511,15 +531,25 @@ final class KeyboardViewController: UIInputViewController {
                 // Freshness matters: an app killed mid-capture leaves
                 // "capturing" behind forever, and without the age check the
                 // keyboard would go red instantly and then hang.
-                if SharedStore.liveState == "capturing", SharedStore.secondsSinceLive < 6 {
+                if SharedStore.liveState == "capturing", SharedStore.secondsSinceLive < Self.liveStale {
                     self.cancelWait()
                     self.mode = .recording
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 } else if Date() >= deadline {
+                    // Nobody picked up. If the app is still stamping, it is
+                    // resident and the knock was missed or it was busy; knock
+                    // once more before blaming it (0.1.124). Only a silent app
+                    // gets the wake prompt.
+                    if !self.captureRetried, SharedStore.secondsSinceLive < Self.liveStale {
+                        self.captureRetried = true
+                        DarwinBridge.shared.post(.startRecording)
+                        self.waitForCapture(deadline: Date().addingTimeInterval(3.0))
+                        return
+                    }
                     self.cancelWait()
-                    // Nobody picked up: the app is not resident (iOS suspended or
-                    // killed it — common in Low Power Mode). Show the wake prompt
-                    // rather than AUTO-launching the app: an unexpected jump to
+                    // The app is not resident (iOS suspended or killed it —
+                    // common in Low Power Mode). Show the wake prompt rather
+                    // than AUTO-launching the app: an unexpected jump to
                     // Dictator mid-typing is jarring. The user taps to wake it
                     // deliberately.
                     self.wakeMessage = nil
@@ -579,7 +609,7 @@ final class KeyboardViewController: UIInputViewController {
                 // The app crashed or was jettisoned mid-transcription: it has
                 // stopped stamping the App Group. Its audio was persisted to
                 // disk, so reopening recovers it.
-                if SharedStore.secondsSinceLive > 6 {
+                if SharedStore.secondsSinceLive > Self.liveStale {
                     self.cancelResultWatch()
                     self.wakeMessage = "Dictator stopped mid-transcription. Reopen it to recover your recording."
                     self.mode = .needsSession

@@ -92,6 +92,19 @@ public enum SharedStore {
         return Date().timeIntervalSince1970 - at
     }
 
+    /// The keyboard stamps this every second while it is on screen. The app
+    /// pauses its idle countdown while the stamp is fresh: typing with the
+    /// Dictator keyboard is using Dictator, even with no dictation (0.1.124).
+    public static func stampKeyboardVisible() {
+        defaults?.set(Date().timeIntervalSince1970, forKey: "keyboardVisibleAt")
+    }
+
+    public static var secondsSinceKeyboardVisible: TimeInterval {
+        let at = defaults?.double(forKey: "keyboardVisibleAt") ?? 0
+        guard at > 0 else { return .greatestFiniteMagnitude }
+        return Date().timeIntervalSince1970 - at
+    }
+
     // MARK: - Transcript handoff
 
     /// Written by the app, read by the keyboard. The token changes every time so
