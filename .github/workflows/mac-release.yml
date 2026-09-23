@@ -249,7 +249,18 @@ jobs:
           fi
           [ -n "$SIGN_UPDATE" ] || { echo "sign_update not found in the Sparkle artifact bundle"; exit 1; }
           chmod +x "$SIGN_UPDATE"
-          OUT=$("$SIGN_UPDATE" -s "$SPARKLE_PRIVATE_ED_KEY" "$DMG_PATH")
+          # Sparkle 2.10 refuses the key on the command line (-s); it reads it
+          # from a file. The file lives only for the length of the call.
+          KEYFILE="$RUNNER_TEMP/sparkle-ed.key"
+          printf '%s\n' "$SPARKLE_PRIVATE_ED_KEY" > "$KEYFILE"
+          set +e
+          OUT=$("$SIGN_UPDATE" --ed-key-file "$KEYFILE" "$DMG_PATH" 2>"$RUNNER_TEMP/sign_update.err")
+          RC=$?
+          set -e
+          rm -f "$KEYFILE"
+          if [ "$RC" -ne 0 ]; then
+            echo "sign_update failed (exit $RC):"; cat "$RUNNER_TEMP/sign_update.err"; exit 1
+          fi
           echo "sign_update: $OUT"
           SIG=$(echo "$OUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
           LEN=$(echo "$OUT" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
