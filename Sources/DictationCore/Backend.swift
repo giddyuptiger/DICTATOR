@@ -176,12 +176,18 @@ public struct BackendCleanup: CleanupProvider {
     public init() { self.session = GroqHTTP.shared }
 
     public func clean(_ raw: String, system: String) async throws -> String {
+        try await clean(raw, system: system, preferredModel: nil)
+    }
+
+    public func clean(_ raw: String, system: String, preferredModel: String?) async throws -> String {
         var request = URLRequest(url: URL(string: "\(Backend.baseURL)/v1/cleanup")!)
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(Backend.deviceID, forHTTPHeaderField: "X-Device-Id")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["text": raw, "system": system])
+        var body: [String: Any] = ["text": raw, "system": system]
+        if let preferredModel { body["model"] = preferredModel }   // the Worker tries it first
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw BackendError.unparseable }

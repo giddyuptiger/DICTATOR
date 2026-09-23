@@ -12,6 +12,15 @@ import FoundationModels
 /// model when you want the whole pipeline offline.
 public protocol CleanupProvider: Sendable {
     func clean(_ raw: String, system: String) async throws -> String
+    /// Same, trying `preferredModel` first when the provider can choose one.
+    /// The default ignores the preference.
+    func clean(_ raw: String, system: String, preferredModel: String?) async throws -> String
+}
+
+public extension CleanupProvider {
+    func clean(_ raw: String, system: String, preferredModel: String?) async throws -> String {
+        try await clean(raw, system: system)
+    }
 }
 
 public struct CleanupResult: Sendable {
@@ -44,6 +53,10 @@ public struct Cleaner: Sendable {
 
     /// `typed`: the text was typed rather than dictated (the keyboard's Polish
     /// key), so the prompt also fixes typos and swipe mis-guesses.
+    /// The model the Polish key asks for first (the provider falls back to its
+    /// usual chain if Groq has retired it).
+    public static let polishModel = "llama-3.3-70b-versatile"
+
     public func process(_ raw: String, profile: ToneProfile, typed: Bool = false) async -> CleanupResult {
         let start = Date()
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -61,7 +74,11 @@ public struct Cleaner: Sendable {
                                           mode: DictationMode.current, typed: typed)
 
         do {
-            let cleaned = try await provider.clean(trimmed, system: system)
+            // Polish is a judgment task ("is 'our' a swipe guess for 'it' here?")
+            // and the fast 8b model that is plenty for transcript formatting
+            // leaves those alone; a one-off Polish can afford the strong model.
+            let cleaned = try await provider.clean(trimmed, system: system,
+                                                   preferredModel: typed ? Self.polishModel : nil)
             let cleanedTrimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
             return reconcile(rawTrimmed: trimmed, cleanedTrimmed: cleanedTrimmed, start: start)
         } catch {
@@ -302,6 +319,10 @@ public struct GroqCleanup: CleanupProvider {
     }
 
     public func clean(_ raw: String, system: String) async throws -> String {
+        try await clean(raw, system: system, preferredModel: nil)
+    }
+
+    public func clean(_ raw: String, system: String, preferredModel: String?) async throws -> String {
         // Try the last-known-good model first, then the rest. A model that is
         // gone (HTTP 4xx naming the model) means try the next; any other failure
         // (network, auth) is not helped by trying more models, so surface it.
@@ -310,12 +331,16 @@ public struct GroqCleanup: CleanupProvider {
             order.remove(at: i)
             order.insert(cached, at: 0)
         }
+        if let preferredModel {
+            order.removeAll { $0 == preferredModel }
+            order.insert(preferredModel, at: 0)
+        }
 
         var lastModelError: Error = CleanupError.unparseable
         for model in order {
             do {
                 let text = try await request(model: model, raw: raw, system: system)
-                SharedStore.cleanupModel = model   // remember the winner
+                if model != preferredModel { SharedStore.cleanupModel = model }   // remember the winner
                 return text
             } catch CleanupError.modelUnavailable {
                 lastModelError = CleanupError.modelUnavailable

@@ -172,6 +172,9 @@ final class KeyboardViewController: UIInputViewController {
     /// One Polish request in flight: what was sent, and how to replace it when
     /// the answer comes back.
     private struct PolishJob {
+        /// The exact context strings read, so the result can be verified against
+        /// the field before anything is deleted.
+        var before = "", after = ""
         let original: String
         let beforeCount: Int
         let afterCount: Int
@@ -179,6 +182,7 @@ final class KeyboardViewController: UIInputViewController {
     }
     private var polishJob: PolishJob?
     private var lastPolishToken: String?
+    private var lastPolishApplied = Date.distantPast
     private var polishTimeout: Timer?
     /// The text most recently removed by undo, so redo can put it back. Cleared
     /// whenever a new dictation is inserted (that invalidates the redo history).
@@ -1770,6 +1774,10 @@ final class KeyboardViewController: UIInputViewController {
     @objc private func polishTapped() {
         guard Pro.allows(.polish) else { flash("Polish is a Pro feature."); return }
         guard polishJob == nil else { return }
+        // The host applies our deletes and inserts asynchronously; a tap right
+        // after a polish reads the field mid-change and the next replacement
+        // lands on stale counts (0.1.122: a sentence doubled). Let it settle.
+        guard Date().timeIntervalSince(lastPolishApplied) > 1.0 else { return }
         guard mode == .ready || mode == .retryError else {
             flash(appIsAlive ? "Busy. Try again in a moment." : "Tap the pill to wake Dictator first.")
             return
@@ -1787,7 +1795,8 @@ final class KeyboardViewController: UIInputViewController {
                 flash("Nothing to polish yet.")
                 return
             }
-            job = PolishJob(original: text, beforeCount: before.count, afterCount: after.count, isSelection: false)
+            job = PolishJob(before: before, after: after, original: text,
+                            beforeCount: before.count, afterCount: after.count, isSelection: false)
         }
         polishJob = job
         SharedStore.publishPolishRequest(job.original)
@@ -1832,15 +1841,29 @@ final class KeyboardViewController: UIInputViewController {
         let trail = String(job.original.reversed().prefix { $0.isWhitespace }.reversed())
         let output = lead + polished.trimmingCharacters(in: .whitespacesAndNewlines) + trail
         let proxy = textDocumentProxy
+        if output == job.original {
+            flash("Nothing to fix.")
+            lastPolishApplied = Date()
+            return
+        }
         if job.isSelection {
             proxy.insertText(output)               // replaces the selection
         } else {
             // We read before + after around the cursor: jump to the end of that
             // window, delete exactly what we read, and type the polished text.
+            // Only if the field still holds exactly what we read: if the user
+            // typed, moved the cursor, or the host is mid-update, deleting by
+            // the old counts would eat the wrong characters.
+            guard (proxy.documentContextBeforeInput ?? "").hasSuffix(job.before),
+                  (proxy.documentContextAfterInput ?? "").hasPrefix(job.after) else {
+                flash("The text changed. Tap Polish again.")
+                return
+            }
             if job.afterCount > 0 { proxy.adjustTextPosition(byCharacterOffset: job.afterCount) }
             for _ in 0..<(job.beforeCount + job.afterCount) { proxy.deleteBackward() }
             proxy.insertText(output)
         }
+        lastPolishApplied = Date()
         lastInserted = output
         undoRestores = job.original
         lastUndone = nil

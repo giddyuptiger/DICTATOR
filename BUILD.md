@@ -382,6 +382,30 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.123 — Polish: its own prompt, the strong model, safe repeated taps (2026-09-23)
+
+"Okay, legs, try this feature or and see how our works!" came back from
+Polish with "legs" and "our" untouched, and tapping the key repeatedly
+doubled the sentence once.
+
+- **Its own prompt.** Polish used the transcript-formatter prompt ("return
+  the SAME words") with a footnote saying "but do fix swipe guesses"; the
+  footnote lost every time. Typed text now gets its own base that explains
+  what a swipe error is (a real word, same first letter, similar path,
+  nonsense where it sits) with examples from the device logs ("legs try
+  this" → "let's try this", "how our works" → "how it works").
+- **The strong model.** Transcript cleanup runs on the fast 8b model, which
+  is plenty for punctuation and fine for cost. Deciding whether "our" is a
+  swipe guess for "it" is a judgment call, so Polish asks for
+  llama-3.3-70b-versatile first (the Worker already honours a requested
+  model and falls back to its chain).
+- **Repeated taps are safe.** The host applies the keyboard's deletes and
+  inserts asynchronously, so a tap right after a polish read the field
+  mid-change and replaced by stale counts. A polish now waits a second after
+  the last one, verifies the field still holds exactly what it read before
+  deleting anything ("The text changed. Tap Polish again." otherwise), and
+  says "Nothing to fix." instead of retyping identical text.
+
 ### 0.1.122 — Polish keeps the space; a shorter swipe-back bar (2026-09-23)
 
 - **Polish glued sentences together.** Dictate two sentences, tap the wand:
