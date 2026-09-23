@@ -5,5 +5,14 @@
     <link>https://trydictator.com/appcast.xml</link>
     <description>Updates for Dictator for Mac. Items are appended by the Mac Release workflow.</description>
     <language>en</language>
+    <item>
+      <title>Dictator 0.1.124</title>
+      <pubDate>Wed, 23 Sep 2026 18:44:12 +0000</pubDate>
+      <sparkle:version>15</sparkle:version>
+      <sparkle:shortVersionString>0.1.124</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/giddyuptiger/DICTATOR/releases/tag/mac-v0.1.126</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/giddyuptiger/DICTATOR/releases/download/mac-v0.1.126/Dictator.dmg" length="21642031" type="application/octet-stream" sparkle:edSignature="2OoqyfUHfgccchJsCcIN0tRw4M4q+oorCkCAPLKPVUGuDqBlZ1lDJ45lsQcyjLxHo6ed3TZg9VzQhm9UqN4tAw=="/>
+    </item>
   </channel>
 </rss>
