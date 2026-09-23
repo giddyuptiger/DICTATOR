@@ -382,6 +382,36 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.121 — swipe: lifts past the last letter, and above the top row (2026-09-23)
+
+A third report (the sentence "okay let's try this swipe to text feature and
+see if it actually works now, looks like it's getting closer, yeah", twice)
+adds 36 swipes, mostly short function words. Two things the paths showed, both
+fixed with no set losing:
+
+- **The lift lands past the last letter more often than 1.4 key widths
+  allowed.** "see" was lifted on "t", 1.7 key widths past "e", and the
+  candidate filter threw "see" out before scoring. The endpoint tolerance is
+  2.0 now; the endpoint channel already charges for the distance, so nothing
+  else changes for a precise lift.
+- **A thumb lifting toward the top row overshoots it by 30-40 pt.** No keys
+  live there, so the path is clamped into the band of key centres before
+  scoring: a lift at y 41 above "t" now reads as "t", not as a point far from
+  every letter.
+
+| decoder | set 1 (48) | set 2 (41) | set 3 (36) | all (125) |
+|---|---|---|---|---|
+| 0.1.120 | 36 | 26 | 19 | 81 |
+| 0.1.121 | 39 | 28 | 20 | 87 |
+
+"terry" and "abs" leave the lexicon ("try" and "and" lost to them by a
+hundredth). The synthetic guard set is unchanged (222/300).
+
+Still lost on set 3: "let's" (the "t" overshot to "y"), "swipe" twice (the
+turn for "p" stopped on "o", both times), "if" (lifted on "d", and after a
+wrong "set" the bigram "set of" pulls toward "of"), "works" (the "k" landed
+between "h" and "j"), "closer" (lifted two keys past "r").
+
 ### 0.1.120 — swipe: second ground-truth set, names out of the lexicon (2026-09-22)
 
 The same sentence swiped again on 0.1.118 gave a second set of 41 swipes the

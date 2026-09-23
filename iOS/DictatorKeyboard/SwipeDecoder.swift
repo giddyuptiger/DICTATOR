@@ -65,8 +65,11 @@ final class SwipeDecoder {
     /// Resample count for both the drawn path and each candidate's ideal path.
     private static let samples = 40
     /// Candidate filter: first/last letter must be within this many key widths
-    /// of the path's first/last point.
-    private static let endpointTolerance = 1.4
+    /// of the path's first/last point. 2.0 since 0.1.121: on three real sets a
+    /// lift 1.5-1.7 key widths past the last letter ("see" lifted on "t") was
+    /// common enough that 1.4 threw the right word out before scoring; the
+    /// endpoint channel already charges for the distance.
+    private static let endpointTolerance = 2.0
     /// Score weights (all in key-width units except the shape channel, which is a
     /// mean distance). Re-tuned after the first device feedback against a harder
     /// simulation (real iPhone geometry, corner-cutting between letters, a 27k
@@ -170,6 +173,17 @@ final class SwipeDecoder {
         for (ch, p) in centers {
             if let i = Self.index(of: ch) { centre[i] = p }
         }
+
+        // No keys exist above the top row or below the bottom one, so a path
+        // that strays there carries no vertical information: clamp it into the
+        // band of key centres. A thumb lifting toward "e" overshoots the top row
+        // by 30-40 pt routinely (0.1.121, three real sets), and unclamped that
+        // read as a lift far from every letter.
+        var minY = Double.greatestFiniteMagnitude, maxY = -Double.greatestFiniteMagnitude
+        for c in centre { if let c { minY = min(minY, Double(c.y)); maxY = max(maxY, Double(c.y)) } }
+        let path: [CGPoint] = (minY < maxY) ? path.map {
+            CGPoint(x: Double($0.x), y: min(max(Double($0.y), minY), maxY))
+        } : path
 
         let drawn = Self.resample(path, count: Self.samples)
         let drawnLength = Self.length(of: path)

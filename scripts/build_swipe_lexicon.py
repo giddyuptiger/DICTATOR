@@ -34,7 +34,7 @@ STEMS = {"didn","doesn","wasn","isn","hasn","couldn","wouldn","shouldn","aren","
 BLOCK = {"terri","osu","seite","msn","kierkegaard","asp","pdas","http","www","href","php","cgi","xml","html",
          # Seen beating real words in device logs (0.1.116): rare enough that a
          # swipe is never meant as them.
-         "af","aff","ir","au","asu","iot","og","sto","ste","los","sid","webb","acer","psi","patti","peru","oahu","yang","soo","thee","ay","eh","un","sweetie","phi","oi","ifyou","la","al","ie","ire","omni","ub","od",
+         "af","aff","ir","au","asu","iot","og","sto","ste","los","sid","webb","acer","psi","patti","peru","oahu","yang","soo","thee","ay","eh","un","sweetie","phi","oi","ifyou","la","al","ie","ire","omni","ub","od","terry","abs",
          # Month abbreviations: web-frequent, never swiped.
          "jan","feb","mar","apr","jun","jul","aug","sep","sept","oct","nov","dec"}
 PROTECT_SUB = 5000

@@ -17,7 +17,10 @@ change to the decoder can be judged on real thumbs before it ships.
   sentence swiped again on 0.1.118. Tuning on the first set alone gave 37/48
   there but only 25/41 here: always score both, and treat a gain that shows
   on one set only as noise.
+- `swipes-0.1.120.txt` + `set120.py`: the third log (`DATA120`), a different
+  sentence of short function words, swiped twice.
 - `sweep3.py`: the two-set parameter sweep that chose the 0.1.120 weights.
+- `exp3.py`: the three-set experiments behind 0.1.121 (`CLAMP`, `TOL`).
 
 Adding a new report: paste its `swipe →` lines into a new file, list the
 intended words in order, and point `replica.py` at it. Keep the old sets:
