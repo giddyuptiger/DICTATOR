@@ -1822,17 +1822,26 @@ final class KeyboardViewController: UIInputViewController {
             flash("Couldn't polish right now. Try again.")
             return
         }
+        // The cleaner trims what it is given and the model returns trimmed text,
+        // but we replace EXACTLY the characters we read. A host that exposes only
+        // the current sentence hands us " What a beautiful day" with its leading
+        // space; putting back "What a beautiful day" glued it to the sentence
+        // before (0.1.122). Keep the original's leading and trailing whitespace
+        // around the polished text.
+        let lead = String(job.original.prefix { $0.isWhitespace })
+        let trail = String(job.original.reversed().prefix { $0.isWhitespace }.reversed())
+        let output = lead + polished.trimmingCharacters(in: .whitespacesAndNewlines) + trail
         let proxy = textDocumentProxy
         if job.isSelection {
-            proxy.insertText(polished)             // replaces the selection
+            proxy.insertText(output)               // replaces the selection
         } else {
             // We read before + after around the cursor: jump to the end of that
             // window, delete exactly what we read, and type the polished text.
             if job.afterCount > 0 { proxy.adjustTextPosition(byCharacterOffset: job.afterCount) }
             for _ in 0..<(job.beforeCount + job.afterCount) { proxy.deleteBackward() }
-            proxy.insertText(polished)
+            proxy.insertText(output)
         }
-        lastInserted = polished
+        lastInserted = output
         undoRestores = job.original
         lastUndone = nil
         lastSwipedInsert = nil

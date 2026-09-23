@@ -382,6 +382,19 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.122 — Polish keeps the space; a shorter swipe-back bar (2026-09-23)
+
+- **Polish glued sentences together.** Dictate two sentences, tap the wand:
+  "does.What a beautiful day". A host that exposes only the current sentence
+  hands the keyboard " What a beautiful day…" with its leading space; the
+  cleaner trims its input and the model returns trimmed text, and the keyboard
+  replaced exactly the characters it had read with the trimmed result. The
+  original's leading and trailing whitespace now wrap the polished text.
+- **The swipe-back bar on the wake screen is shorter** (about 38 pt from 62):
+  the label sits beside the fingertip track instead of above it. Jeremy kept
+  swiping inside the green but above the track, which is above the zone
+  where the system's back-to-app gesture fires.
+
 ### 0.1.121 — swipe: lifts past the last letter, and above the top row (2026-09-23)
 
 A third report (the sentence "okay let's try this swipe to text feature and

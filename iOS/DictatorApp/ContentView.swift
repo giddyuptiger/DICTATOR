@@ -939,13 +939,15 @@ private struct SwipeHintBar: View {
     var body: some View {
         // Kept deliberately SHORT. The system swipe-to-previous-app gesture only
         // fires very near the bottom edge, so a tall bar invites the user to swipe
-        // in its (too-high) middle, where nothing happens. Halving the height drops
-        // the whole bar — and the fingertip line the eye follows — down into the
-        // zone where the swipe actually works.
-        VStack(spacing: 5) {
-            Text("Swipe back to your app")
-                .font(.subheadline.bold())
+        // in its (too-high) middle, where nothing happens. 0.1.122: shorter again
+        // (about 38 pt from 62) — the label now sits beside the track instead of
+        // above it, because a swipe inside the green but above the track was
+        // still too high to fire.
+        HStack(spacing: 12) {
+            Text("Swipe back")
+                .font(.footnote.bold())
                 .foregroundStyle(.white)
+                .fixedSize()
 
             GeometryReader { geo in
                 let dotSize: CGFloat = 20
@@ -988,9 +990,9 @@ private struct SwipeHintBar: View {
             .frame(height: 20)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 8)
+        .padding(.top, 6)
         .padding(.horizontal, 20)
-        .padding(.bottom, 14) // sits low, still clear of the home indicator
+        .padding(.bottom, 12) // sits low, still clear of the home indicator
         .background(
             LinearGradient(colors: [top, bottom], startPoint: .leading, endPoint: .trailing)
         )
