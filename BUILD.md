@@ -382,6 +382,38 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### Mac auto-update with Sparkle (2026-09-23)
+
+The Mac app now carries Sparkle 2: it checks `https://trydictator.com/appcast.xml`
+once a day and on "Check for Updates…" in the menu, downloads the next DMG from
+the GitHub Release, verifies its EdDSA signature and Developer ID, and installs on
+relaunch. The Mac Release workflow signs each DMG and appends an item to
+`docs/appcast.xml` on `main`, which GitHub Pages serves as the site. The build
+number is the workflow run number (Sparkle compares `CFBundleVersion`, and the
+project's static "1" would never look newer); the version people see is still
+`MARKETING_VERSION`.
+
+**One-time setup (needs a Mac; do this before the next `mac-v*` tag):**
+
+1. In the checkout, `xcodegen generate`, open the project once so Xcode resolves
+   the packages (or run `xcodebuild -resolvePackageDependencies -project
+   Dictator.xcodeproj -scheme "Dictator (Mac)"`).
+2. Find Sparkle's tools and make a key pair:
+   `KEYS=$(find ~/Library/Developer/Xcode/DerivedData -type f -name generate_keys -path "*parkle*" | head -1); "$KEYS"`
+   It prints the public key (a short base64 string) and stores the private key in
+   your login keychain. Export the private key: `"$KEYS" -x sparkle-private.key`.
+3. On GitHub, Settings → Secrets and variables → Actions:
+   - **Variable** `SPARKLE_PUBLIC_ED_KEY` = the public key.
+   - **Secret** `SPARKLE_PRIVATE_ED_KEY` = the contents of `sparkle-private.key`.
+   Then delete `sparkle-private.key` from disk; the keychain keeps it.
+4. Tag a release as usual (`git tag mac-v0.1.125 && git push origin mac-v0.1.125`).
+   The workflow prints "Sparkle public key set" and "appcast: added …".
+
+The copy installed today (0.1.114) has no updater, so it must be replaced by hand
+once; every copy after that updates itself. If the variable is missing the app
+builds with updates off and the workflow says so; if the secret is missing the
+release still publishes, without an appcast item.
+
 ### 0.1.124 — staying awake, batch one (2026-09-23)
 
 The first batch from docs/STAYING_AWAKE.md, plus a pass over the places where a

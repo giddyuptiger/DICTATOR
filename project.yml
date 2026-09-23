@@ -20,6 +20,10 @@ packages:
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio
     from: 0.12.4
+  # Auto-update for the Mac app (not App Store; ships as a notarized DMG).
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.4
 
 settings:
   base:
@@ -51,6 +55,7 @@ targets:
       - path: macOS
     dependencies:
       - package: FluidAudio
+      - package: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: design.irons.dictator.mac

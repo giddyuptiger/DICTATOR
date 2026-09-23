@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import AVFoundation
 import ServiceManagement
+import Sparkle
 
 // Note: DictationCore is compiled directly into this target as source
 // (see project.yml), not linked as a module, so there is nothing to import.
@@ -122,6 +123,7 @@ struct MenuContent: View {
                 .font(.caption).foregroundStyle(.orange)
         }
         Divider()
+        Button("Check for Updates…") { app.updater.checkForUpdates(nil) }
         Button("Settings…") { openSettings(.setup) }
         // macOS only hands an Accessibility grant to a freshly launched process, so
         // a one-click restart is the reliable way to make the hotkey start working
@@ -135,6 +137,11 @@ struct MenuContent: View {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    /// Sparkle. Checks the appcast once a day (SUScheduledCheckInterval) and on
+    /// "Check for Updates…"; downloads, verifies the EdDSA signature and the
+    /// Developer ID, and installs on relaunch. No sandbox here, so the standard
+    /// controller needs no XPC services.
+    let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     @Published var status = "Starting…"
     @Published var lastTiming: String?

@@ -17,6 +17,15 @@
 #   AC_API_ISSUER_ID              App Store Connect API issuer ID
 #   AC_API_KEY_P8_BASE64          base64 of the downloaded AuthKey_XXXX.p8
 #
+# OPTIONAL, for Sparkle auto-update (BUILD.md "Mac auto-update"):
+#   SPARKLE_PRIVATE_ED_KEY        secret: the EdDSA private key from Sparkle's
+#                                 generate_keys (-x); signs the DMG
+#   SPARKLE_PUBLIC_ED_KEY         repository VARIABLE (not secret): the matching
+#                                 public key, written into Info.plist before the
+#                                 archive. With both set, every mac-v* release
+#                                 also appends an item to docs/appcast.xml on
+#                                 main, which the site serves to installed apps.
+#
 # See README/BUILD.md for exactly how to create each of these.
 
 name: Mac Release
@@ -99,6 +108,21 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" \
             $(security list-keychains -d user | sed s/\"//g)
 
+      # Sparkle needs the public key in the app and a build number that grows
+      # every release (it compares CFBundleVersion, and the project's static "1"
+      # would never look newer). The run number grows; the marketing version is
+      # what people see.
+      - name: Sparkle public key into Info.plist
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
+        run: |
+          if [ -n "$SPARKLE_PUBLIC_ED_KEY" ]; then
+            /usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $SPARKLE_PUBLIC_ED_KEY" macOS/Info.plist
+            echo "Sparkle public key set (length ${#SPARKLE_PUBLIC_ED_KEY})"
+          else
+            echo "SPARKLE_PUBLIC_ED_KEY not set: the app will not self-update"
+          fi
+
       - name: Archive (Developer ID, hardened runtime)
         run: |
           set -euo pipefail
@@ -107,6 +131,7 @@ jobs:
             -configuration Release \
             -destination "generic/platform=macOS" \
             -archivePath "$RUNNER_TEMP/Dictator.xcarchive" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Developer ID Application" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
@@ -201,3 +226,42 @@ jobs:
           name: Dictator for Mac ${{ env.VERSION }}
           files: ${{ env.DMG_PATH }}
           generate_release_notes: true
+
+      # Sign the DMG for Sparkle and publish the appcast item on main, so the
+      # site (docs/, served at trydictator.com) offers this release to every
+      # installed copy. Skipped, with a note, when the key is not configured.
+      - name: Sparkle — sign the DMG and update the appcast
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+          TAG: ${{ github.ref_name }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SPARKLE_PRIVATE_ED_KEY" ]; then
+            echo "SPARKLE_PRIVATE_ED_KEY not set: skipping the appcast"; exit 0
+          fi
+          SIGN_UPDATE=$(find ~/Library/Developer/Xcode/DerivedData "$RUNNER_TEMP" -type f -name sign_update -path "*parkle*" 2>/dev/null | head -1 || true)
+          if [ -z "$SIGN_UPDATE" ]; then
+            # The archive resolved the package; its artifact bundle holds the tools.
+            SIGN_UPDATE=$(find / -type f -name sign_update -path "*parkle*" 2>/dev/null | head -1 || true)
+          fi
+          [ -n "$SIGN_UPDATE" ] || { echo "sign_update not found in the Sparkle artifact bundle"; exit 1; }
+          chmod +x "$SIGN_UPDATE"
+          OUT=$("$SIGN_UPDATE" -s "$SPARKLE_PRIVATE_ED_KEY" "$DMG_PATH")
+          echo "sign_update: $OUT"
+          SIG=$(echo "$OUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+          LEN=$(echo "$OUT" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
+          [ -n "$SIG" ] && [ -n "$LEN" ] || { echo "could not parse the signature"; exit 1; }
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/Dictator.dmg"
+          NOTES="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --depth=1 origin main
+          git checkout -B main origin/main
+          python3 scripts/sparkle_appcast.py --version "$BUILD_NUMBER" --short "$VERSION" \
+            --url "$URL" --length "$LEN" --signature "$SIG" --notes-url "$NOTES"
+          git add docs/appcast.xml
+          git commit -m "appcast: Dictator for Mac $VERSION (build $BUILD_NUMBER, $TAG)" || { echo "nothing to commit"; exit 0; }
+          git push origin main

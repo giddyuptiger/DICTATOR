@@ -16,6 +16,18 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- Sparkle auto-update. The appcast lives on the site (docs/appcast.xml);
+	     the release workflow appends an item per mac-v* tag. SUPublicEDKey is
+	     filled in by the workflow from the SPARKLE_PUBLIC_ED_KEY repository
+	     variable before the archive; empty here means updates are off. -->
+	<key>SUFeedURL</key>
+	<string>https://trydictator.com/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string></string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 
