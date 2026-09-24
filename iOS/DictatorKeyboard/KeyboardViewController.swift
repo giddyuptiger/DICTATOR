@@ -164,6 +164,10 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var redoButton  = makeRedo()
     private lazy var modeButton  = makeMode()
     private lazy var polishButton = makePolish()
+    /// Shown only in login-type fields (username, email, one-time code): a
+    /// one-tap hop to an Apple keyboard, which is the only place iOS draws the
+    /// Passwords / "From Messages" AutoFill bar. No extension can show it.
+    private lazy var passwordsButton = makePasswords()
     private var lastInserted: String?
     /// Set when `lastInserted` replaced existing text (the Polish key): undo
     /// deletes the replacement AND puts this back, so a polish is never lossy.
@@ -282,6 +286,7 @@ final class KeyboardViewController: UIInputViewController {
         updateHeight()
         refreshMode()
         refreshReturnKey()   // the return key's label/colour depends on this field's returnKeyType
+        refreshPasswordsKey()
         startModeWatch()
         // Using the keyboard is using Dictator: the app pauses its idle release
         // while this stamp is fresh (see modeWatch, which renews it every second).
@@ -329,6 +334,7 @@ final class KeyboardViewController: UIInputViewController {
         super.textDidChange(textInput)
         syncShiftToContext()
         refreshReturnKey()   // focus may have moved to a field with a different returnKeyType
+        refreshPasswordsKey()
         if (view.overrideUserInterfaceStyle == .dark) != resolveDark() { applyTheme() }
     }
 
@@ -1601,7 +1607,7 @@ final class KeyboardViewController: UIInputViewController {
     private var heightConstraint: NSLayoutConstraint?
 
     private func layout() {
-        let bar = UIStackView(arrangedSubviews: [modeButton, polishButton, micButton, undoButton, redoButton])
+        let bar = UIStackView(arrangedSubviews: [modeButton, polishButton, passwordsButton, micButton, undoButton, redoButton])
         bar.axis = .horizontal
         bar.spacing = 6
         bar.distribution = .fill
@@ -1621,6 +1627,7 @@ final class KeyboardViewController: UIInputViewController {
         statusLabel.isUserInteractionEnabled = false
         undoButton.isHidden = true
         redoButton.isHidden = true
+        passwordsButton.isHidden = true
 
         let height = view.heightAnchor.constraint(equalToConstant: 268)
         // NOT .required. The system installs its own temporary height constraints
@@ -1633,7 +1640,10 @@ final class KeyboardViewController: UIInputViewController {
 
         NSLayoutConstraint.activate([
             height,
-            root.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            // 3 pt, not 8 (0.1.125): iOS 26 draws every keyboard inside a rounded
+            // sheet with its own headroom, and 8 on top of that read as an empty
+            // grey bar above the pill row.
+            root.topAnchor.constraint(equalTo: view.topAnchor, constant: 3),
             root.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
             root.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
             root.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
@@ -1641,6 +1651,7 @@ final class KeyboardViewController: UIInputViewController {
             bar.heightAnchor.constraint(equalToConstant: 42),
             modeButton.widthAnchor.constraint(equalToConstant: 86),
             polishButton.widthAnchor.constraint(equalToConstant: 42),
+            passwordsButton.widthAnchor.constraint(equalToConstant: 42),
             undoButton.widthAnchor.constraint(equalToConstant: 42),
             redoButton.widthAnchor.constraint(equalToConstant: 42),
 
@@ -1779,6 +1790,34 @@ final class KeyboardViewController: UIInputViewController {
         b.layer.cornerRadius = 10
         b.addTarget(self, action: #selector(redoTapped), for: .touchUpInside)
         b.accessibilityLabel = "Redo dictation"
+        return b
+    }
+
+    /// Login-type field? Then offer the hop to an Apple keyboard for AutoFill.
+    /// A real password field never reaches us (iOS swaps its own keyboard in),
+    /// so the cases that matter are the fields around it.
+    private func refreshPasswordsKey() {
+        let login: Bool
+        if let t = textDocumentProxy.textContentType {
+            login = [UITextContentType.username, .emailAddress, .oneTimeCode, .password, .newPassword].contains(t)
+        } else {
+            login = false
+        }
+        if passwordsButton.isHidden == login { passwordsButton.isHidden = !login }
+    }
+
+    @objc private func passwordsTapped() {
+        advanceToNextInputMode()
+    }
+
+    private func makePasswords() -> UIButton {
+        let b = UIButton(type: .custom)
+        b.setImage(UIImage(systemName: "key.fill"), for: .normal)
+        b.tintColor = .label
+        b.backgroundColor = .systemGray3
+        b.layer.cornerRadius = 10
+        b.addTarget(self, action: #selector(passwordsTapped), for: .touchUpInside)
+        b.accessibilityLabel = "Passwords: switch to the Apple keyboard for AutoFill"
         return b
     }
 

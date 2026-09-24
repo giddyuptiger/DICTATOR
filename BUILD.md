@@ -382,6 +382,18 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.125 — a Passwords key for login fields; less headroom (2026-09-24)
+
+- **Passwords key.** The AutoFill bar (saved passwords, "From Messages" codes,
+  contacts) is drawn only above Apple's keyboards; no extension can show it, and
+  a real password field already flips to an Apple keyboard on its own. The gap
+  was the fields around it. In a username, email or one-time-code field the pill
+  row now shows a key icon; one tap switches to the next keyboard (an Apple one,
+  Japanese included), where AutoFill appears; the globe brings Dictator back.
+  Hidden everywhere else.
+- **Top margin 8 → 3 pt.** iOS 26 draws every keyboard inside a rounded sheet
+  with its own headroom; ours on top read as an empty grey bar above the pills.
+
 ### Mac auto-update with Sparkle (2026-09-23)
 
 The Mac app now carries Sparkle 2: it checks `https://trydictator.com/appcast.xml`
