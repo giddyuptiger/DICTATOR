@@ -382,6 +382,15 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.126 — wake screen: "Swipe back to your typing" (2026-09-25)
+
+The "Stay in Dictator" link above the swipe bar read as an instruction and made
+no sense next to "swipe back". Gone. In its place, in brand green: "Swipe back
+to your typing" with a chevron that nods down toward the bar, whose fingertip
+keeps travelling the full width (the bar's own label went, since the sentence
+above now says it). The app is still reachable from the Home Screen, which does
+not show this screen.
+
 ### 0.1.125 — a Passwords key for login fields; less headroom (2026-09-24)
 
 - **Passwords key.** The AutoFill bar (saved passwords, "From Messages" codes,

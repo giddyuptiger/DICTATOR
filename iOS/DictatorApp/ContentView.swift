@@ -106,7 +106,7 @@ struct ContentView: View {
             // the settings UI — they want to get back to their app and dictate. So
             // we cover everything with a calm screen pointing at the home-swipe.
             if recorder.wokeForDictation {
-                WakeScreen(onDismiss: { recorder.wokeForDictation = false })
+                WakeScreen()
                     .transition(.opacity)
                     .zIndex(1)
             }
@@ -860,7 +860,7 @@ private struct WaveformMark: View {
 ///  2. The bottom bar doesn't just point; a fingertip actually travels the swipe
 ///     path left→right, over and over, so it's obvious what to physically do.
 private struct WakeScreen: View {
-    let onDismiss: () -> Void
+    @State private var bounce = false
 
     // Dictator's green, matched to the app icon / keyboard accent.
     private static let brandTop    = Color(red: 0.22, green: 0.89, blue: 0.61) // #37E39B
@@ -905,12 +905,22 @@ private struct WakeScreen: View {
 
                 Spacer()
 
-                // A quiet escape hatch so the user is never trapped on this screen
-                // if they'd rather stay in the app.
-                Button("Stay in Dictator", action: onDismiss)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 8)
+                // Points at the bar below, where the gesture actually is. Green,
+                // with a chevron that nods toward the bar (0.1.126; the old "Stay
+                // in Dictator" link read as an instruction and confused people;
+                // the app is still reachable from the Home Screen).
+                VStack(spacing: 6) {
+                    Text("Swipe back to your typing")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Self.brandBottom)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(Self.brandBottom)
+                        .offset(y: bounce ? 5 : -2)
+                        .animation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true), value: bounce)
+                }
+                .padding(.bottom, 10)
+                .onAppear { bounce = true }
             }
 
             // The colored bar hugging the bottom edge, right where the home-swipe
@@ -943,12 +953,9 @@ private struct SwipeHintBar: View {
         // (about 38 pt from 62) — the label now sits beside the track instead of
         // above it, because a swipe inside the green but above the track was
         // still too high to fire.
+        // The label moved above the bar (green, with the chevron); the bar is
+        // the fingertip's track, full width.
         HStack(spacing: 12) {
-            Text("Swipe back")
-                .font(.footnote.bold())
-                .foregroundStyle(.white)
-                .fixedSize()
-
             GeometryReader { geo in
                 let dotSize: CGFloat = 20
                 let inset: CGFloat = 8
