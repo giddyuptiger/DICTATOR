@@ -382,6 +382,21 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.127 — emoji search (2026-09-25)
+
+A magnifier key in the emoji plane's control row. Tap it and the letter keys
+come up with a search strip in place of the pill row: the query on the left,
+matching emoji scrolling on the right, an × to close. Keys type into the query,
+not the field (backspace edits it; return or the × closes search; swipe typing
+is off while searching). Tapping a result inserts it and records it as recent;
+with no query yet the strip shows recents.
+
+The index (`emoji-keywords.txt`, 76 KB, built by scripts/build_emoji_keywords.py)
+comes from Unicode's own English names and keywords for every emoji in the
+catalogue (1,340), plus everyday synonyms Unicode leaves out (lol, haha, ok,
+yay, skate…). Every word of the query must match a prefix of a name word or a
+keyword; name matches rank above keyword matches, and ties keep catalogue order.
+
 ### Xcode Cloud: resolve packages from the generated project (2026-09-25)
 
 The 0.1.125/0.1.126 iOS archives failed on Xcode Cloud: "an out-of-date

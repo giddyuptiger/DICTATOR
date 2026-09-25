@@ -168,6 +168,19 @@ final class KeyboardViewController: UIInputViewController {
     /// one-tap hop to an Apple keyboard, which is the only place iOS draws the
     /// Passwords / "From Messages" AutoFill bar. No extension can show it.
     private lazy var passwordsButton = makePasswords()
+
+    // MARK: Emoji search
+    /// While true, the letter keys type into `emojiQuery` instead of the text
+    /// field, and the strip above the keys shows matching emoji (0.1.127).
+    private var emojiSearchActive = false
+    private var emojiQuery = ""
+    private var topBar: UIStackView?
+    private lazy var searchStrip = makeSearchStrip()
+    private let searchLabel = UILabel()
+    private let searchResults = UIStackView()
+    private let searchScroll = UIScrollView()
+    private let searchCancel = UIButton(type: .custom)
+    private let searchIcon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
     private var lastInserted: String?
     /// Set when `lastInserted` replaced existing text (the Polish key): undo
     /// deletes the replacement AND puts this back, so a polish is never lossy.
@@ -407,6 +420,7 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        if emojiSearchActive { exitEmojiSearch(toPlane: .letters) }
         if mode == .recording { stopRecording() }
         // Tell the app the keyboard is gone, so an abandoned capture cannot
         // leave the microphone open.
@@ -1145,7 +1159,7 @@ final class KeyboardViewController: UIInputViewController {
         // swipe (a theme flip mid-gesture) ends it cleanly rather than decoding a
         // path against keys that no longer exist.
         endGlide(commit: false)
-        swipeRecognizer.isEnabled = (plane == .letters) && swipeTypingEnabled
+        swipeRecognizer.isEnabled = (plane == .letters) && swipeTypingEnabled && !emojiSearchActive
 
         if plane == .emoji { buildEmojiPlane(); return }
 
@@ -1255,6 +1269,8 @@ final class KeyboardViewController: UIInputViewController {
         ctrl.spacing = 6
         ctrl.distribution = .fill
 
+        let search = makeSpecial(image: "magnifyingglass", title: nil, action: #selector(emojiSearchTapped))
+        search.accessibilityLabel = "Search emoji"
         let abc = makeSpecial(image: nil, title: "ABC", action: #selector(emojiBackTapped))
         abc.accessibilityLabel = "Letters"
         let space = makeSpecial(image: nil, title: "space", action: nil)
@@ -1268,10 +1284,12 @@ final class KeyboardViewController: UIInputViewController {
         del.addTarget(self, action: #selector(deleteDown), for: .touchDown)
         del.addTarget(self, action: #selector(deleteUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
 
+        ctrl.addArrangedSubview(search)
         ctrl.addArrangedSubview(abc)
         ctrl.addArrangedSubview(space)
         ctrl.addArrangedSubview(del)
-        abc.widthAnchor.constraint(equalTo: ctrl.widthAnchor, multiplier: 0.20).isActive = true
+        search.widthAnchor.constraint(equalTo: ctrl.widthAnchor, multiplier: 0.13).isActive = true
+        abc.widthAnchor.constraint(equalTo: ctrl.widthAnchor, multiplier: 0.17).isActive = true
         del.widthAnchor.constraint(equalTo: ctrl.widthAnchor, multiplier: 0.15).isActive = true
         ctrl.heightAnchor.constraint(equalToConstant: 44).isActive = true
         rowsStack.addArrangedSubview(ctrl)
@@ -1389,6 +1407,15 @@ final class KeyboardViewController: UIInputViewController {
     // MARK: - Typing actions
 
     @objc private func keyDown(_ sender: UIButton) {
+        if emojiSearchActive {
+            // The keys type into the search query, never into the field.
+            if let t = sender.title(for: .normal) { emojiQuery += t; refreshEmojiSearch() }
+            if shift == .once { shift = .off }
+            keyDownSeq &+= 1
+            lastKeyDownButton = sender
+            sender.backgroundColor = palette.keyPressed
+            return
+        }
         // KEEP THIS PATH MINIMAL. It runs on every keypress, and any main-thread
         // work here shows up as typing lag and — when the thread stalls — dropped
         // keys (iOS coalesces touches while the main thread is busy). So: insert
@@ -1449,7 +1476,121 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func emojiTapped() {
+        if emojiSearchActive { exitEmojiSearch(toPlane: .emoji); return }
         plane = .emoji
+    }
+
+    // MARK: - Emoji search
+
+    @objc private func emojiSearchTapped() {
+        emojiSearchActive = true
+        emojiQuery = ""
+        shift = .off
+        searchStrip.isHidden = false
+        topBar?.isHidden = true
+        plane = .letters          // rebuilds the keys; swipe stays off while searching
+        refreshEmojiSearch()
+    }
+
+    private func exitEmojiSearch(toPlane target: Plane) {
+        emojiSearchActive = false
+        emojiQuery = ""
+        searchStrip.isHidden = true
+        topBar?.isHidden = false
+        if plane == target { rebuildKeys() } else { plane = target }
+    }
+
+    @objc private func emojiSearchCancelTapped() {
+        exitEmojiSearch(toPlane: .emoji)
+    }
+
+    @objc private func emojiSearchResultTapped(_ sender: UIButton) {
+        guard let e = sender.title(for: .normal) else { return }
+        SharedStore.pushRecentEmoji(e)
+        insertEmoji(e)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    /// The query line and the result strip. With no query yet, the strip shows
+    /// recents, so the most likely picks are one tap away before typing.
+    private func refreshEmojiSearch() {
+        let q = emojiQuery
+        searchLabel.text = q.isEmpty ? "Search emoji" : q + "|"
+        searchLabel.textColor = q.isEmpty ? .secondaryLabel : palette.keyText
+        let results = q.trimmingCharacters(in: .whitespaces).isEmpty
+            ? Array(SharedStore.recentEmoji.prefix(16))
+            : EmojiSearch.shared.matches(q, limit: 30)
+        searchResults.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for e in results {
+            let b = UIButton(type: .custom)
+            b.setTitle(e, for: .normal)
+            b.titleLabel?.font = .systemFont(ofSize: 26)
+            b.widthAnchor.constraint(equalToConstant: 36).isActive = true
+            b.addTarget(self, action: #selector(emojiSearchResultTapped(_:)), for: .touchUpInside)
+            searchResults.addArrangedSubview(b)
+        }
+        searchScroll.setContentOffset(.zero, animated: false)
+    }
+
+    private func makeSearchStrip() -> UIView {
+        let strip = UIView()
+        strip.layer.cornerRadius = 10
+        strip.backgroundColor = .systemGray3
+
+        searchIcon.tintColor = .secondaryLabel
+        searchIcon.contentMode = .scaleAspectFit
+        searchIcon.translatesAutoresizingMaskIntoConstraints = false
+
+        searchLabel.font = .systemFont(ofSize: 16)
+        searchLabel.lineBreakMode = .byTruncatingHead
+        searchLabel.translatesAutoresizingMaskIntoConstraints = false
+        searchLabel.setContentHuggingPriority(.required, for: .horizontal)
+        searchLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        searchResults.axis = .horizontal
+        searchResults.spacing = 2
+        searchResults.translatesAutoresizingMaskIntoConstraints = false
+        searchScroll.showsHorizontalScrollIndicator = false
+        searchScroll.translatesAutoresizingMaskIntoConstraints = false
+        searchScroll.addSubview(searchResults)
+
+        searchCancel.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        searchCancel.tintColor = .secondaryLabel
+        searchCancel.translatesAutoresizingMaskIntoConstraints = false
+        searchCancel.addTarget(self, action: #selector(emojiSearchCancelTapped), for: .touchUpInside)
+        searchCancel.accessibilityLabel = "Close emoji search"
+
+        strip.addSubview(searchIcon)
+        strip.addSubview(searchLabel)
+        strip.addSubview(searchScroll)
+        strip.addSubview(searchCancel)
+        NSLayoutConstraint.activate([
+            searchIcon.leadingAnchor.constraint(equalTo: strip.leadingAnchor, constant: 10),
+            searchIcon.centerYAnchor.constraint(equalTo: strip.centerYAnchor),
+            searchIcon.widthAnchor.constraint(equalToConstant: 18),
+            searchIcon.heightAnchor.constraint(equalToConstant: 18),
+
+            searchLabel.leadingAnchor.constraint(equalTo: searchIcon.trailingAnchor, constant: 6),
+            searchLabel.centerYAnchor.constraint(equalTo: strip.centerYAnchor),
+            searchLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 120),
+
+            searchScroll.leadingAnchor.constraint(equalTo: searchLabel.trailingAnchor, constant: 8),
+            searchScroll.topAnchor.constraint(equalTo: strip.topAnchor),
+            searchScroll.bottomAnchor.constraint(equalTo: strip.bottomAnchor),
+            searchScroll.trailingAnchor.constraint(equalTo: searchCancel.leadingAnchor, constant: -4),
+
+            searchResults.leadingAnchor.constraint(equalTo: searchScroll.contentLayoutGuide.leadingAnchor),
+            searchResults.trailingAnchor.constraint(equalTo: searchScroll.contentLayoutGuide.trailingAnchor),
+            searchResults.topAnchor.constraint(equalTo: searchScroll.contentLayoutGuide.topAnchor),
+            searchResults.bottomAnchor.constraint(equalTo: searchScroll.contentLayoutGuide.bottomAnchor),
+            searchResults.heightAnchor.constraint(equalTo: searchScroll.frameLayoutGuide.heightAnchor),
+
+            searchCancel.trailingAnchor.constraint(equalTo: strip.trailingAnchor, constant: -8),
+            searchCancel.centerYAnchor.constraint(equalTo: strip.centerYAnchor),
+            searchCancel.widthAnchor.constraint(equalToConstant: 30),
+            searchCancel.heightAnchor.constraint(equalToConstant: 30),
+        ])
+        return strip
     }
 
     @objc private func emojiBackTapped() {
@@ -1464,6 +1605,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func spaceTapped() {
+        if emojiSearchActive { emojiQuery += " "; refreshEmojiSearch(); return }
         let afterSwipe = lastSwipedInsert != nil
         lastSwipedInsert = nil
         // Double space becomes ". ", matching the system keyboard.
@@ -1485,6 +1627,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func returnTapped() {
+        if emojiSearchActive { exitEmojiSearch(toPlane: .emoji); return }
         lastSwipedInsert = nil
         textDocumentProxy.insertText("\n")
     }
@@ -1530,6 +1673,10 @@ final class KeyboardViewController: UIInputViewController {
 
     @objc private func deleteDown(_ sender: UIButton) {
         sender.backgroundColor = palette.specialPressed
+        if emojiSearchActive {
+            if !emojiQuery.isEmpty { emojiQuery.removeLast(); refreshEmojiSearch() }
+            return
+        }
         // The one deletion a tap performs, on touch-down like every other key.
         // Right after a swiped word, one backspace takes back the WHOLE word (and
         // the space the swipe added), as Apple's keyboard does, so a wrong guess
@@ -1571,6 +1718,10 @@ final class KeyboardViewController: UIInputViewController {
     /// ~1.5 s, then switches to whole-word deletion so a long hold clears text
     /// quickly instead of one letter at a time.
     private func deleteRepeatTick() {
+        if emojiSearchActive {
+            if !emojiQuery.isEmpty { emojiQuery.removeLast(); refreshEmojiSearch() }
+            return
+        }
         deleteTicks += 1
         if deleteTicks > 16 {
             deleteWordBackward()
@@ -1616,11 +1767,13 @@ final class KeyboardViewController: UIInputViewController {
         rowsStack.spacing = 11
         rowsStack.distribution = .fillEqually
 
-        let root = UIStackView(arrangedSubviews: [bar, rowsStack])
+        let root = UIStackView(arrangedSubviews: [searchStrip, bar, rowsStack])
         root.axis = .vertical
         root.spacing = 8
         root.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(root)
+        topBar = bar
+        searchStrip.isHidden = true
 
         micButton.addSubview(statusLabel)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1649,6 +1802,7 @@ final class KeyboardViewController: UIInputViewController {
             root.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
 
             bar.heightAnchor.constraint(equalToConstant: 42),
+            searchStrip.heightAnchor.constraint(equalToConstant: 42),
             modeButton.widthAnchor.constraint(equalToConstant: 86),
             polishButton.widthAnchor.constraint(equalToConstant: 42),
             passwordsButton.widthAnchor.constraint(equalToConstant: 42),
@@ -1702,6 +1856,9 @@ final class KeyboardViewController: UIInputViewController {
         redoButton.backgroundColor = palette.special
         redoButton.tintColor = palette.specialText
         emojiView.glyphTint = palette.keyText
+        searchStrip.backgroundColor = palette.special
+        searchIcon.tintColor = palette.specialText
+        searchCancel.tintColor = palette.specialText
         emojiView.stripBackground = palette.board
         emojiView.selectedTabBackground = palette.special
         rebuildKeys()
