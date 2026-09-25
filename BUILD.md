@@ -382,6 +382,19 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### Xcode Cloud: resolve packages from the generated project (2026-09-25)
+
+The 0.1.125/0.1.126 iOS archives failed on Xcode Cloud: "an out-of-date
+resolved file was detected … not allowed when automatic dependency resolution
+is disabled … dependencies were added: 'sparkle'". The post-clone script ran
+`swift package resolve` against the root Package.swift (FluidAudio only) and
+copied that list into the Xcode workspace, which since Sparkle also depends on
+Sparkle for the Mac target. The script now runs `xcodebuild
+-resolvePackageDependencies` on the generated project, which writes the
+workspace's own Package.resolved with exactly the project's set, and keeps the
+SwiftPM path as a fallback. Lesson: two dependency lists exist here (the
+library manifest and project.yml); Xcode Cloud needs the project's.
+
 ### 0.1.126 — wake screen: "Swipe back to your typing" (2026-09-25)
 
 The "Stay in Dictator" link above the swipe bar read as an instruction and made

@@ -50,13 +50,26 @@ xcodegen generate
 # it, so Xcode Cloud's own resolve step finds a valid file and does not try (and
 # fail) to resolve. Without this the archive fails at "Could not resolve package
 # dependencies" before a single line of Swift is compiled.
-echo "==> Resolving Swift packages via SwiftPM (FluidAudio)"
-swift package resolve
-
+# Resolve the packages of the GENERATED PROJECT, not of the root Package.swift:
+# the two lists differ (the Mac target pulls Sparkle for auto-update, which the
+# library manifest never mentions), and Xcode Cloud builds with automatic
+# resolution off, so a Package.resolved that lacks a dependency fails the
+# archive ("out-of-date resolved file ... 'sparkle' was added"). xcodebuild
+# writes the workspace's own Package.resolved with exactly the project's set.
+echo "==> Resolving Swift packages for the generated project"
 RESOLVED_DIR="Dictator.xcodeproj/project.xcworkspace/xcshareddata/swiftpm"
-mkdir -p "$RESOLVED_DIR"
-cp Package.resolved "$RESOLVED_DIR/Package.resolved"
-echo "==> Placed Package.resolved at $RESOLVED_DIR"
+if xcodebuild -resolvePackageDependencies -project Dictator.xcodeproj -scheme "Dictator (iOS)" \
+     -clonedSourcePackagesDirPath "$CI_DERIVED_DATA_PATH/SourcePackages" 2>&1 | tail -20 \
+   && [ -f "$RESOLVED_DIR/Package.resolved" ]; then
+  echo "==> xcodebuild resolved the project's packages"
+else
+  echo "==> xcodebuild resolution failed; falling back to SwiftPM (FluidAudio only)"
+  swift package resolve
+  mkdir -p "$RESOLVED_DIR"
+  cp Package.resolved "$RESOLVED_DIR/Package.resolved"
+fi
+echo "==> Package.resolved at $RESOLVED_DIR:"
+grep -o '"identity" *: *"[^"]*"' "$RESOLVED_DIR/Package.resolved" || true
 
 # Hedge: also re-enable Xcode's automatic package resolution for any later
 # xcodebuild in this build, in case the copied file alone is not accepted. No-op
