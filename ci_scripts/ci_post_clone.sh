@@ -70,6 +70,13 @@ else
 fi
 echo "==> Package.resolved at $RESOLVED_DIR:"
 grep -o '"identity" *: *"[^"]*"' "$RESOLVED_DIR/Package.resolved" || true
+# Every package the generated project declares must be pinned, or the archive
+# fails later with a less useful message. Fail here, with the file, instead.
+for pkg in fluidaudio sparkle; do
+  if ! grep -qi "\"identity\" *: *\"$pkg\"" "$RESOLVED_DIR/Package.resolved"; then
+    echo "==> ERROR: Package.resolved lacks '$pkg'. Contents:"; cat "$RESOLVED_DIR/Package.resolved"; exit 1
+  fi
+done
 
 # Hedge: also re-enable Xcode's automatic package resolution for any later
 # xcodebuild in this build, in case the copied file alone is not accepted. No-op
