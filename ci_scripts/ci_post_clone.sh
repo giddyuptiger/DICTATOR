@@ -59,7 +59,7 @@ xcodegen generate
 echo "==> Resolving Swift packages for the generated project"
 RESOLVED_DIR="Dictator.xcodeproj/project.xcworkspace/xcshareddata/swiftpm"
 if xcodebuild -resolvePackageDependencies -project Dictator.xcodeproj -scheme "Dictator (iOS)" \
-     -clonedSourcePackagesDirPath "$CI_DERIVED_DATA_PATH/SourcePackages" 2>&1 | tail -20 \
+     -clonedSourcePackagesDirPath "${CI_DERIVED_DATA_PATH:-$PWD/DerivedData}/SourcePackages" 2>&1 | tail -20 \
    && [ -f "$RESOLVED_DIR/Package.resolved" ]; then
   echo "==> xcodebuild resolved the project's packages"
 else
