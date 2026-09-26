@@ -54,8 +54,9 @@ public struct Cleaner: Sendable {
     /// `typed`: the text was typed rather than dictated (the keyboard's Polish
     /// key), so the prompt also fixes typos and swipe mis-guesses.
     /// The model the Polish key asks for first (the provider falls back to its
-    /// usual chain if Groq has retired it).
-    public static let polishModel = "llama-3.3-70b-versatile"
+    /// usual chain if Groq has retired it). Was llama-3.3-70b-versatile, which
+    /// Groq shut down on 2026-08-16; gpt-oss-120b is its recommended successor.
+    public static let polishModel = "openai/gpt-oss-120b"
 
     public func process(_ raw: String, profile: ToneProfile, typed: Bool = false) async -> CleanupResult {
         let start = Date()
@@ -299,14 +300,15 @@ public struct GroqCleanup: CleanupProvider {
     /// spread across families and cache the first that works; if Groq kills one,
     /// the next covers it. Ordered fast-and-cheap first, which is plenty for a
     /// rewrite-this-text task.
+    ///
+    /// 2026-09-26: Groq shut down llama-3.1-8b-instant and llama-3.3-70b-versatile
+    /// on 2026-08-16 and Llama 4 Scout on 2026-07-17 (gemma2-9b-it went earlier),
+    /// so the list is now the two gpt-oss models Groq names as their successors.
+    /// Both are reasoning models and are asked for low effort (see request()).
     public static let defaultModels = [
-        "llama-3.1-8b-instant",
         "openai/gpt-oss-20b",
-        "meta-llama/llama-4-scout-17b-16e-instruct",
-        "gemma2-9b-it",
-        "moonshotai/kimi-k2-instruct",
         "openai/gpt-oss-120b",
-        "llama-3.3-70b-versatile"
+        "moonshotai/kimi-k2-instruct"
     ]
 
     public init(apiKey: String, models: [String] = GroqCleanup.defaultModels) {
@@ -359,7 +361,7 @@ public struct GroqCleanup: CleanupProvider {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "temperature": 0.1,
             "max_tokens": 1500,
@@ -368,6 +370,9 @@ public struct GroqCleanup: CleanupProvider {
                 ["role": "user", "content": raw]
             ]
         ]
+        // gpt-oss thinks before it answers; at the default (medium) effort that
+        // thinking is most of the wait. Cleanup is a rewrite, so keep it short.
+        if model.hasPrefix("openai/gpt-oss") { body["reasoning_effort"] = "low" }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)

@@ -382,6 +382,29 @@ the cleanup provider to `nil` and the phone alone costs pennies.
 Both targets compile (Xcode 26.0.1, Swift 6.2, FluidAudio 0.15.7) and the iOS
 app is on TestFlight as 1.0 (1). Dictation works end to end on both platforms.
 
+### 0.1.128 — cleanup on live Groq models; server timings in the log (2026-09-26)
+
+Dictations had crept up to 2–4 s, with an occasional ~10 s. Cause: Groq shut
+down llama-3.1-8b-instant and llama-3.3-70b-versatile on 2026-08-16 (Llama 4
+Scout on 2026-07-17, gemma2-9b-it earlier). The Worker's cleanup list began with
+8b-instant, so every dictation paid for a 404 and then ran gpt-oss-20b at its
+default (medium) reasoning effort; if that came back empty it walked three more
+dead models before returning the raw transcript.
+
+- Worker (backend/src/index.js, needs `npx wrangler deploy`): cleanup list is
+  now gpt-oss-20b then gpt-oss-120b, both with `reasoning_effort: "low"`; one
+  retry without the parameter if Groq ever rejects it; the whole cleanup stage
+  is bounded at 5 s (past it the user gets Whisper's own transcript, logged as
+  "cleanup: NOT applied"). /v1/dictate and /v1/cleanup return a `timing` object:
+  Whisper ms, cleanup ms, and every model attempt with its outcome and ms.
+- App: the activity log adds a `server:` line after each cloud dictation with
+  those timings plus the upload size and clip length, so the next slow one
+  shows whether the time went to Groq or to the network.
+- App: the own-key (BYOK) cleanup list and the Polish key's first choice move to
+  gpt-oss (Polish asks for gpt-oss-120b), also at low reasoning effort.
+  Polish had been asking for the retired 70b model since 0.1.123 and silently
+  falling back.
+
 ### 0.1.127 — emoji search (2026-09-25)
 
 A magnifier key in the emoji plane's control row. Tap it and the letter keys

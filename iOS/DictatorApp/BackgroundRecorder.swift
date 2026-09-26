@@ -1626,6 +1626,11 @@ public final class BackgroundRecorder: ObservableObject {
             log("mode: \(DictationMode.current.displayName)")
             log(out.usedProvider ? "cleanup: applied (1-trip)" : "cleanup: NOT applied (\(out.note ?? "unknown"))")
             log(String(format: "timing: dictate %dms · total %dms", transcribeMS, ms))
+            // Where the round trip went: the Worker's own Groq timings, and the
+            // upload size (the rest of the round trip is network).
+            log(String(format: "server: %@ · upload %d KB · audio %.1fs",
+                       result.serverTiming ?? "no timing (old Worker)",
+                       result.uploadBytes / 1024, Double(samples.count) / 16_000))
             finish(text: out.text, ms: ms)
             return true
         } catch {

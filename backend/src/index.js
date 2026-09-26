@@ -24,15 +24,22 @@
 
 const GROQ_BASE = "https://api.groq.com/openai/v1";
 
-// Cleanup model fallback order (mirrors the app's list): try cheap/fast first, fall
-// forward if Groq has decommissioned one.
+// Cleanup models, tried in order. Groq shut down llama-3.1-8b-instant and
+// llama-3.3-70b-versatile on 2026-08-16 (404 model_not_found), Llama 4 Scout on
+// 2026-07-17, and gemma2-9b-it before that. Until this list was updated every
+// cleanup paid for a 404 round trip and then ran gpt-oss-20b at its default
+// (medium) reasoning effort, which is what made dictations slow. Both gpt-oss
+// models are reasoning models: they think before they answer, so they are asked
+// for "low" effort (see chatBody); cleanup is a rewrite, not a puzzle.
 const CLEANUP_MODELS = [
-  "llama-3.1-8b-instant",
   "openai/gpt-oss-20b",
-  "meta-llama/llama-4-scout-17b-16e-instruct",
-  "gemma2-9b-it",
-  "llama-3.3-70b-versatile",
+  "openai/gpt-oss-120b",
 ];
+
+// Upper bound on the whole cleanup stage. Past it the user gets Whisper's own
+// (already punctuated) transcript instead of waiting; the app logs it as
+// "cleanup: NOT applied".
+const CLEANUP_BUDGET_MS = 5000;
 
 export default {
   async fetch(request, env, ctx) {
@@ -91,45 +98,98 @@ async function handleCleanup(request, env, ctx) {
   }
   const system = typeof body.system === "string" ? body.system : "";
   const requested = typeof body.model === "string" ? body.model : null;
-  const models = requested ? [requested, ...CLEANUP_MODELS] : CLEANUP_MODELS;
-
-  let lastErr = "no_model";
-  for (const model of models) {
-    const resp = await fetch(`${GROQ_BASE}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.1,
-        max_tokens: 1500,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: body.text },
-        ],
-      }),
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      const text = data?.choices?.[0]?.message?.content?.trim() ?? "";
-      if (text) {
-        ctx.waitUntil(bumpSpend(env));
-        return json({ text, model });
-      }
-      lastErr = "empty_completion";
-      continue;
-    }
-    const errText = await resp.text();
-    // A 4xx naming the model = decommissioned/no access -> try the next model.
-    if (resp.status >= 400 && resp.status < 500 && errText.includes("model")) {
-      lastErr = "model_unavailable";
-      continue;
-    }
-    return json({ error: "groq_error", status: resp.status, detail: errText.slice(0, 300) }, 502);
+  const r = await cleanUp(env, ctx, system, body.text, requested);
+  if (r.text) return json({ text: r.text, model: r.model, timing: r.timing });
+  if (r.status) {
+    return json({ error: "groq_error", status: r.status, detail: r.detail, timing: r.timing }, 502);
   }
-  return json({ error: lastErr }, 502);
+  return json({ error: r.error, timing: r.timing }, 502);
+}
+
+// One chat request body. gpt-oss models reason before answering; "low" keeps
+// that to a few dozen tokens, which is the difference between ~0.4 s and several
+// seconds on Groq for a paragraph of cleanup.
+function chatBody(model, system, text, withReasoningEffort) {
+  const b = {
+    model,
+    temperature: 0.1,
+    max_tokens: 1500,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: text },
+    ],
+  };
+  if (withReasoningEffort && model.startsWith("openai/gpt-oss")) b.reasoning_effort = "low";
+  return b;
+}
+
+// Run cleanup across CLEANUP_MODELS (a requested model first), bounded by
+// CLEANUP_BUDGET_MS in total. Returns { text, model, timing } on success, or
+// { error | status+detail, timing } when nothing usable came back.
+// timing = { cleanup_ms, attempts: ["model:outcome:ms", ...] } so the app's log
+// shows exactly where the time went.
+async function cleanUp(env, ctx, system, text, requested) {
+  const models = requested
+    ? [requested, ...CLEANUP_MODELS.filter((m) => m !== requested)]
+    : CLEANUP_MODELS;
+  const started = Date.now();
+  const attempts = [];
+  const timing = () => ({ cleanup_ms: Date.now() - started, attempts });
+  let error = "no_model";
+
+  for (const model of models) {
+    let withEffort = true;
+    for (let pass = 0; pass < 2; pass++) {
+      const left = CLEANUP_BUDGET_MS - (Date.now() - started);
+      if (left < 300) {
+        attempts.push(`${model}:budget`);
+        return { error: "cleanup_timeout", timing: timing() };
+      }
+      const t0 = Date.now();
+      let resp;
+      try {
+        resp = await fetch(`${GROQ_BASE}/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.GROQ_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(chatBody(model, system, text, withEffort)),
+          signal: AbortSignal.timeout(left),
+        });
+      } catch (e) {
+        attempts.push(`${model}:timeout:${Date.now() - t0}`);
+        return { error: "cleanup_timeout", timing: timing() };
+      }
+      if (resp.ok) {
+        const data = await resp.json().catch(() => null);
+        const out = data?.choices?.[0]?.message?.content?.trim() ?? "";
+        attempts.push(`${model}:${out ? "ok" : "empty"}:${Date.now() - t0}`);
+        if (out) {
+          ctx.waitUntil(bumpSpend(env));
+          return { text: out, model, timing: timing() };
+        }
+        error = "empty_completion";
+        break; // next model
+      }
+      const errText = await resp.text();
+      attempts.push(`${model}:${resp.status}:${Date.now() - t0}`);
+      // If Groq ever stops accepting reasoning_effort for a model, retry that
+      // model once without it rather than losing the model.
+      if (resp.status === 400 && withEffort && errText.includes("reasoning")) {
+        withEffort = false;
+        continue;
+      }
+      // A 4xx naming the model = decommissioned / no access / rate-limited on
+      // this model -> try the next model.
+      if (resp.status >= 400 && resp.status < 500 && errText.includes("model")) {
+        error = "model_unavailable";
+        break;
+      }
+      return { status: resp.status, detail: errText.slice(0, 300), timing: timing() };
+    }
+  }
+  return { error, timing: timing() };
 }
 
 async function handleTranscribe(request, env, ctx) {
@@ -176,60 +236,33 @@ async function handleDictate(request, env, ctx) {
   if (form.get("language")) tf.set("language", form.get("language"));
   if (form.get("prompt")) tf.set("prompt", form.get("prompt"));
 
+  const w0 = Date.now();
   const tr = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${env.GROQ_API_KEY}` },
     body: tf,
   });
+  const whisper_ms = Date.now() - w0;
   if (!tr.ok) {
     const detail = await tr.text();
-    return json({ error: "groq_error", status: tr.status, detail: detail.slice(0, 300) }, 502);
+    return json({ error: "groq_error", status: tr.status, detail: detail.slice(0, 300),
+                  timing: { whisper_ms } }, 502);
   }
   const traw = await tr.json();
   const raw = (traw?.text ?? "").trim();
   ctx.waitUntil(bumpSpend(env));
-  if (!raw) return json({ raw: "", text: "", cleaned: false });
+  if (!raw) return json({ raw: "", text: "", cleaned: false, timing: { whisper_ms } });
 
   // 2) Clean up (best effort). If every model fails, return the raw transcript so
   // the user still gets their words; the app decides what to do with cleaned=false.
   const system = typeof form.get("system") === "string" ? form.get("system") : "";
-  if (!system) return json({ raw, text: raw, cleaned: false });
+  if (!system) return json({ raw, text: raw, cleaned: false, timing: { whisper_ms } });
 
   const requested = form.get("cleanup_model");
-  const models = requested ? [requested, ...CLEANUP_MODELS] : CLEANUP_MODELS;
-  for (const model of models) {
-    const resp = await fetch(`${GROQ_BASE}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.1,
-        max_tokens: 1500,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: raw },
-        ],
-      }),
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      const text = data?.choices?.[0]?.message?.content?.trim() ?? "";
-      if (text) {
-        ctx.waitUntil(bumpSpend(env));
-        return json({ raw, text, cleaned: true });
-      }
-      continue; // empty completion -> try the next model
-    }
-    const errText = await resp.text();
-    if (resp.status >= 400 && resp.status < 500 && errText.includes("model")) {
-      continue; // decommissioned/no access -> next model
-    }
-    break; // a real error -> stop trying, fall back to raw below
-  }
-  return json({ raw, text: raw, cleaned: false });
+  const r = await cleanUp(env, ctx, system, raw, typeof requested === "string" ? requested : null);
+  const timing = { whisper_ms, ...r.timing, model: r.model ?? null };
+  if (r.text) return json({ raw, text: r.text, cleaned: true, timing });
+  return json({ raw, text: raw, cleaned: false, timing });
 }
 
 // ---- Waitlist ---------------------------------------------------------------

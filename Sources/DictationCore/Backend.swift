@@ -101,6 +101,26 @@ public struct DictateResult: Sendable {
     public let raw: String
     public let cleaned: String
     public let didClean: Bool
+    /// The server's own stage timings, e.g. "whisper 420ms · cleanup 310ms
+    /// (openai/gpt-oss-20b:ok:305)", so a slow dictation shows whether the time
+    /// went to Groq or to the upload. Nil from a Worker that predates it.
+    public let serverTiming: String?
+    /// Bytes uploaded (the WAV), for the same diagnosis.
+    public let uploadBytes: Int
+}
+
+extension Backend {
+    /// Render the Worker's `timing` object for the activity log.
+    static func describeTiming(_ json: [String: Any]) -> String? {
+        guard let t = json["timing"] as? [String: Any] else { return nil }
+        var parts: [String] = []
+        if let w = t["whisper_ms"] as? Int { parts.append("whisper \(w)ms") }
+        if let c = t["cleanup_ms"] as? Int {
+            let tries = (t["attempts"] as? [String])?.joined(separator: ", ") ?? ""
+            parts.append(tries.isEmpty ? "cleanup \(c)ms" : "cleanup \(c)ms (\(tries))")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
 }
 
 /// Cloud transcription + cleanup in a SINGLE round trip (the premium fast path).
@@ -166,7 +186,9 @@ public struct BackendDictate {
         // couldn't clean, it returns text == raw with cleaned=false.
         return DictateResult(raw: raw.isEmpty ? text : raw,
                              cleaned: text.isEmpty ? raw : text,
-                             didClean: didClean)
+                             didClean: didClean,
+                             serverTiming: Backend.describeTiming(json),
+                             uploadBytes: wav.count)
     }
 }
 
