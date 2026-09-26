@@ -6,6 +6,7 @@
 <title>Dictator — Private dictation for iPhone & Mac</title>
 <meta name="description" content="Dictator turns your voice into clean, formatted text anywhere — transcribed privately on your device. A fast, private alternative to $15/mo dictation apps.">
 <meta property="og:title" content="Dictator">
+<meta name="apple-itunes-app" content="app-id=APP_STORE_ID">
 <meta property="og:description" content="Private dictation for iPhone & Mac. Talk, get clean text anywhere.">
 <meta property="og:image" content="icon.png">
 <style>
@@ -75,19 +76,9 @@
   .chip { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: .9rem; color: var(--ink); background: var(--panel); }
 
   .soon { text-align: center; }
-  .soon .pill { display: inline-block; border: 1px solid var(--green-deep); color: var(--green); border-radius: 999px; padding: 4px 12px; font-size: .8rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; }
+  .pill { display: inline-block; border: 1px solid var(--green-deep); color: var(--green); border-radius: 999px; padding: 4px 12px; font-size: .8rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; }
 
   .wait { text-align: center; }
-  .wait form { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 20px auto 0; max-width: 460px; }
-  .wait input[type=email] { flex: 1; min-width: 220px; padding: 13px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 1rem; }
-  .wait input[type=email]::placeholder { color: var(--muted); }
-  .wait button { padding: 13px 22px; border-radius: 12px; border: none; font-weight: 600; font-size: 1rem; cursor: pointer; background: linear-gradient(135deg, var(--green), var(--green-deep)); color: #04140c; }
-  .wait button:disabled { opacity: .6; cursor: default; }
-  .wait .hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
-  .wait .msg { margin-top: 12px; min-height: 1.2em; font-size: .95rem; }
-  .wait .msg.ok { color: var(--green); }
-  .wait .msg.err { color: #ff8a8a; }
-  .wait .fine { color: var(--muted); font-size: .82rem; margin-top: 10px; }
 
   footer { text-align: center; color: var(--muted); font-size: .9rem; padding: 40px 20px 60px; border-top: 1px solid var(--line); margin-top: 56px; }
   footer a { margin: 0 10px; color: var(--muted); }
@@ -133,26 +124,27 @@
           Download for Mac
           <small>macOS 14+</small>
         </a>
-        <a href="#waitlist" class="btn ghost" id="cta-iphone"
-           onclick="window.phCapture&&phCapture('iphone_interest_clicked')">
-          iPhone
-          <small>Get notified at launch</small>
+        <a class="btn primary appstore" href="APP_STORE_URL" id="cta-iphone"
+           onclick="window.phCapture&&phCapture('appstore_clicked', { where: 'hero' })">
+          Get it for iPhone
+          <small>On the App Store</small>
         </a>
       </div>
       <p class="req">Mac: hold <b>fn</b> and talk. iPhone: tap the Dictator keyboard's mic in any app.</p>
-      <p class="req" style="margin-top:4px;">Requires macOS 14 or later &middot; Apple Silicon &amp; Intel &middot; <a href="https://github.com/giddyuptiger/DICTATOR/releases/latest">trouble? view all releases</a></p>
+      <p class="req" style="margin-top:4px;">iPhone: iOS 17 or later &middot; Mac: macOS 14 or later, Apple Silicon &amp; Intel &middot; <a href="https://github.com/giddyuptiger/DICTATOR/releases/latest">all Mac releases</a></p>
     </header>
 
-    <section class="wait" id="waitlist">
-      <h2>Coming to iPhone</h2>
-      <p class="modes">On-device dictation from a keyboard, in any app. Drop your email and we'll tell you the moment it's live on the App Store.</p>
-      <form id="wl-form" novalidate>
-        <input type="email" name="email" placeholder="you@example.com" required autocomplete="email">
-        <input type="text" name="hp" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
-        <button type="submit">Notify me</button>
-      </form>
-      <p class="msg" id="wl-msg" role="status" aria-live="polite"></p>
-      <p class="fine">No spam — one email at launch, and you can unsubscribe any time.</p>
+    <section class="wait" id="iphone">
+      <span class="pill">Now on the App Store</span>
+      <h2 style="margin-top:16px;">Dictator for iPhone</h2>
+      <p class="modes">A keyboard that types what you say, in any app. On-device, so your voice stays on your phone. Swipe typing, emoji search and a Polish key that rewrites what's already in the box.</p>
+      <p style="margin-top:22px;">
+        <a class="btn primary appstore" href="APP_STORE_URL"
+           onclick="window.phCapture&&phCapture('appstore_clicked', { where: 'section' })">
+          Download on the App Store
+          <small>Free &middot; iPhone</small>
+        </a>
+      </p>
     </section>
 
     <section>
@@ -223,45 +215,6 @@
       <p style="margin-top:14px; opacity:.7;">© 2026 Dictator. Made by Jeremy Irons.</p>
     </footer>
   </div>
-  <script>
-  (function () {
-    var f = document.getElementById('wl-form'),
-        m = document.getElementById('wl-msg');
-    if (!f) return;
-    f.addEventListener('submit', function (e) {
-      e.preventDefault();
-      var btn = f.querySelector('button'),
-          email = f.email.value.trim();
-      m.className = 'msg';
-      if (!email) { return; }
-      btn.disabled = true; btn.textContent = '…';
-      fetch('https://dictator-backend.jeremydirons.workers.dev/v1/waitlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email, hp: f.hp.value, ref: 'site' })
-      })
-      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, j: j }; }); })
-      .then(function (res) {
-        if (res.ok && res.j && res.j.ok) {
-          if (window.phCapture) phCapture('waitlist_submitted', { ref: 'site' });
-          m.className = 'msg ok';
-          m.textContent = "You're on the list — we'll email you at launch. 🎉";
-          f.reset();
-        } else {
-          var err = (res.j && res.j.error) || 'error';
-          m.className = 'msg err';
-          m.textContent = err === 'invalid_email'
-            ? 'That email looks off — mind checking it?'
-            : 'Something went wrong. Try again in a sec.';
-        }
-      })
-      .catch(function () {
-        m.className = 'msg err';
-        m.textContent = 'Network hiccup. Try again in a sec.';
-      })
-      .finally(function () { btn.disabled = false; btn.textContent = 'Notify me'; });
-    });
-  })();
-  </script>
+
 </body>
 </html>
